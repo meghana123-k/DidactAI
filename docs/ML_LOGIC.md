@@ -99,6 +99,28 @@ Template-based quiz generation ensures deterministic output, explainability,
 and alignment with the learned content, making the assessment reliable and
 academically defensible.
 
+## Quiz Validation & Difficulty Scoring
+
+Automatically generated quiz questions are validated before being presented
+to the learner to ensure quality, relevance, and fairness.
+
+### Validation Rules
+- Minimum question length
+- At least four answer options
+- Exactly one correct option
+- No answer leakage within the question text
+- Duplicate question removal
+
+### Difficulty Scoring
+Each validated question is assigned a normalized difficulty score (0.0–1.0)
+based on:
+- Question length
+- Similarity between options
+- Cognitive difficulty level
+- Presence of explanatory feedback
+
+This ensures that learners are evaluated using reliable and appropriately
+challenging questions.
 
 ---
 
