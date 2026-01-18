@@ -63,6 +63,25 @@ documents while maintaining readability and coherence.
 
 Purpose: Conceptual clarity and reasoning
 
+
+The conceptual summarization module focuses on extracting key concepts
+and their relationships rather than generating rewritten text.
+Concept normalization and filtering are applied to reduce noise and ensure that extracted concepts are meaningful and relevant.
+### Methodology
+1. The input text is processed using spaCy for Named Entity Recognition
+   and dependency parsing.
+2. Important concepts are identified using named entities and frequent
+   noun phrases.
+3. Concepts are ranked based on frequency and relevance.
+4. Simple subject–verb–object relationships are extracted to capture
+   conceptual connections.
+5. Structured explanations are generated to support conceptual clarity.
+
+### Rationale
+Unlike abstractive summarization, conceptual summarization emphasizes
+understanding relationships and core ideas, enabling learners to grasp
+the underlying structure of the topic.
+
 ---
 
 ## 2. Quiz Generation Logic
