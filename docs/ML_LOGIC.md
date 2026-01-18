@@ -171,3 +171,17 @@ to ensure fair and meaningful assessment.
 ### Rationale
 This multi-metric approach ensures that performance reflects not only
 correctness, but also question difficulty and assessment integrity.
+
+## Certificate Generation
+
+Certificates are issued only when learners demonstrate both
+concept mastery and academic integrity.
+
+### Eligibility Criteria
+- Minimum final score threshold
+- Minimum integrity score threshold
+- Participation across all difficulty levels
+
+### Rationale
+This ensures certificates represent genuine learning outcomes
+rather than raw performance or compromised assessments.
