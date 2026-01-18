@@ -10,6 +10,22 @@
 
 Purpose: Quick overview
 
+The extractive summarization module generates a basic overview by selecting the most
+informative sentences directly from the original text.
+
+### Methodology
+1. The input text is segmented into sentences using an NLP-based tokenizer.
+2. Very short or non-informative sentences are filtered using word-count thresholds.
+3. Each sentence is treated as an individual document and represented using TF-IDF vectors.
+4. Sentence importance is computed using the mean TF-IDF score.
+5. Sentences are ranked by importance and a fixed proportion is selected.
+6. The selected sentences are reordered to preserve the original document flow.
+
+### Rationale
+TF-IDF is chosen for extractive summarization due to its explainability and efficiency.
+Using mean TF-IDF prevents bias toward longer sentences while maintaining relevance.
+Preserving sentence order ensures coherence and readability in the final summary.
+
 ---
 
 ### Detailed Summary (Abstractive)
@@ -18,6 +34,25 @@ Purpose: Quick overview
 - Controls output length via decoding parameters
 
 Purpose: In-depth understanding
+
+
+The abstractive summarization module generates rewritten summaries that preserve the
+semantic meaning of the original text.
+
+### Methodology
+1. The input text is segmented into sentence-based chunks to respect transformer
+   context-length constraints.
+2. Each chunk is summarized independently using a pretrained transformer-based
+   sequence-to-sequence model.
+3. The intermediate summaries are merged and summarized again to ensure coherence
+   across the entire document.
+4. Summary length is controlled using deterministic decoding parameters.
+
+### Rationale
+Transformer-based models such as T5 and BART are capable of generating fluent and
+context-aware summaries. Hierarchical summarization ensures scalability to long
+documents while maintaining readability and coherence.
+
 
 ---
 
