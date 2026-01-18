@@ -134,3 +134,25 @@ challenging questions.
 - Flags or auto-submits quiz if threshold is exceeded
 
 Note: This module is rule-based with ML-inspired reasoning and is not claimed as deep learning.
+## Behavioral Integrity Monitoring
+
+The integrity monitoring module evaluates quiz-taking behavior using
+non-intrusive behavioral analytics.
+
+### Tracked Signals
+- Time spent per question
+- Idle time
+- Tab switching frequency
+- Irregular response timing
+
+### Scoring Logic
+Each behavioral signal contributes to a weighted suspicion score.
+The final integrity score is computed as:
+
+Integrity Score = 1 − Suspicion Score
+
+### Decision Thresholds
+- Score ≥ 0.8: Normal behavior
+- Score 0.6–0.79: Warning
+- Score < 0.6: Flagged attempt
+Thresholds are empirically chosen based on reasonable human behavior patterns, such as typical reading speed and natural variation in response times. The system avoids binary cheating decisions and instead computes a weighted suspicion score to ensure fairness.
