@@ -156,3 +156,18 @@ Integrity Score = 1 − Suspicion Score
 - Score 0.6–0.79: Warning
 - Score < 0.6: Flagged attempt
 Thresholds are empirically chosen based on reasonable human behavior patterns, such as typical reading speed and natural variation in response times. The system avoids binary cheating decisions and instead computes a weighted suspicion score to ensure fairness.
+
+## Analytics & Learning Gain
+
+The analytics module evaluates learner performance using multiple metrics
+to ensure fair and meaningful assessment.
+
+### Metrics
+- Accuracy: Proportion of correctly answered questions
+- Weighted Score: Performance adjusted by question difficulty
+- Integrity-Adjusted Score: Final score adjusted using behavioral integrity
+- Learning Gain: Difference between post-learning and baseline scores
+
+### Rationale
+This multi-metric approach ensures that performance reflects not only
+correctness, but also question difficulty and assessment integrity.
