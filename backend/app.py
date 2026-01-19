@@ -1,12 +1,20 @@
 from flask import Flask
-from flask_cors import CORS
+from routes.summarize import summarize_bp
+from routes.quiz import quiz_bp
+from routes.analytics import analytics_bp
+from routes.certificate import certificate_bp
 
-app = Flask(__name__)
-CORS(app)
+def create_app():
+    app = Flask(__name__)
 
-@app.route("/")
-def home():
-    return {"status": "DidactAI backend running"}
+    app.register_blueprint(summarize_bp, url_prefix="/api/summarize")
+    app.register_blueprint(quiz_bp, url_prefix="/api/quiz")
+    app.register_blueprint(analytics_bp, url_prefix="/api/analytics")
+    app.register_blueprint(certificate_bp, url_prefix="/api/certificate")
+
+    return app
+
+app = create_app()
 
 if __name__ == "__main__":
     app.run(debug=True)
