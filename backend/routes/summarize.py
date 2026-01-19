@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from services.summarizer.extractive import extractive_summarization
+from services.summarizer.extractive import extractive_summary
 from services.summarizer.abstractive import AbstractiveSummarizer
 from services.summarizer.conceptual import ConceptualSummarizer
 
@@ -13,7 +13,7 @@ def summarize():
     data = request.json
     text = data.get("text")
 
-    extractive = extractive_summarization(text)
+    extractive = extractive_summary(text)
     abstractive_summary = abstractive.summarize(text)
     conceptual_summary = conceptual.summarize(text)
 

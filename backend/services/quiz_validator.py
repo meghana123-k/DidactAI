@@ -1,7 +1,7 @@
 from typing import List
 from difflib import SequenceMatcher
 
-from backend.services.quiz_generator import (
+from services.quiz_generator import (
     QuizQuestion,
     QuestionOption,
     DifficultyLevel

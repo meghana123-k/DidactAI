@@ -1,5 +1,5 @@
 from typing import List, Dict
-from backend.services.quiz_generator import QuizQuestion, DifficultyLevel
+from services.quiz_generator import QuizQuestion, DifficultyLevel
 
 
 class AnalyticsEngine:

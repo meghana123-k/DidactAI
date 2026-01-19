@@ -36,12 +36,19 @@ class AbstractiveSummarizer:
 
     def _summarize(self, text: str) -> str:
         """Summarize a given text chunk."""
+        input_length = len(text.split())
+
+        max_len = min(self.max_length, max(30, input_length))
+        min_len = min(self.min_length, max(10, input_length // 2))
+
         summary = self.summarizer(
             text,
-            max_length=self.max_length,
-            min_length=self.min_length,
+            max_length=max_len,
+            min_length=min_len,
             do_sample=False
         )
+
+
         return summary[0]["summary_text"]
 
     def summarize(self, text: str) -> str:
