@@ -1,158 +1,106 @@
-from dataclasses import dataclass
-from typing import List, Dict, Optional
-from enum import Enum
+import os
 import random
-import re
+from typing import List, Dict
+from dotenv import load_dotenv
+import nltk
+from nltk.tokenize import sent_tokenize, word_tokenize
+from nltk.corpus import stopwords
 
+from openai import OpenAI
 
-class DifficultyLevel(Enum):
-    BEGINNER = "beginner"
-    INTERMEDIATE = "intermediate"
-    ADVANCED = "advanced"
+load_dotenv()
 
+nltk.download("punkt", quiet=True)
+nltk.download("stopwords", quiet=True)
 
-@dataclass
-class QuestionOption:
-    text: str
-    is_correct: bool
+STOPWORDS = set(stopwords.words("english"))
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+def extract_keywords(text: str, max_keywords: int = 8) -> List[str]:
+    words = word_tokenize(text.lower())
+    candidates = [
+        w for w in words
+        if w.isalpha() and w not in STOPWORDS and len(w) > 3
+    ]
 
-@dataclass
-class QuizQuestion:
-    question_text: str
-    options: List[QuestionOption]
-    difficulty_level: DifficultyLevel
-    explanation: Optional[str] = None
+    freq = {}
+    for w in candidates:
+        freq[w] = freq.get(w, 0) + 1
 
+    return sorted(freq, key=freq.get, reverse=True)[:max_keywords]
+def llm_generate_mcq(concept: str, difficulty: str, context: str) -> Dict:
+    """
+    LLM generates phrasing + distractors.
+    Correct answer is ALWAYS the concept itself.
+    """
 
-class QuizGenerator:
-    """Generates deterministic MCQ quizzes from summarized and conceptual content."""
+    prompt = f"""
+Create ONE multiple-choice question.
 
-    def _build_options(self, correct: str, distractors: List[str]) -> List[QuestionOption]:
-        distractors = [d for d in distractors if d.lower() != correct.lower()]
-        distractors = distractors[:3]
+CONSTRAINTS:
+- Topic: {concept}
+- Difficulty: {difficulty}
+- Context is for understanding ONLY
+- One correct answer must be: "{concept}"
+- Generate 3 plausible distractors
+- Output STRICT JSON only
 
-        options = [QuestionOption(correct, True)]
-        options += [QuestionOption(d, False) for d in distractors]
+Format:
+{{
+  "question": "",
+  "options": ["{concept}", "distractor1", "distractor2", "distractor3"],
+  "answer": "{concept}"
+}}
 
-        random.shuffle(options)
-        return options
+Context:
+{context}
+"""
 
-    # ---------------- BEGINNER ----------------
-    def generate_beginner_questions(
-        self, summary: str, key_terms: List[str]
-    ) -> List[QuizQuestion]:
-        questions = []
-        sentences = re.split(r'(?<=[.!?])\s+', summary)
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0,
+        max_tokens=200
+    )
 
-        for sentence in sentences:
-            for term in key_terms:
-                if term.lower() in sentence.lower():
-                    masked = re.sub(
-                        term, "______", sentence, flags=re.IGNORECASE
-                    )
-                    options = self._build_options(
-                        correct=term,
-                        distractors=key_terms
-                    )
+    return eval(response.choices[0].message.content)
+def generate_beginner_questions(text: str, num_questions: int = 3) -> List[Dict]:
+    keywords = extract_keywords(text)
+    questions = []
 
-                    questions.append(
-                        QuizQuestion(
-                            question_text=masked,
-                            options=options,
-                            difficulty_level=DifficultyLevel.BEGINNER,
-                            explanation=f"The correct answer is '{term}', as stated in the summary."
-                        )
-                    )
-                    break
+    for concept in keywords[:num_questions]:
+        mcq = llm_generate_mcq(concept, "beginner", text)
+        mcq["difficulty"] = "beginner"
+        questions.append(mcq)
 
-            if len(questions) >= 5:
-                break
+    return questions
+def generate_intermediate_questions(text: str, num_questions: int = 3) -> List[Dict]:
+    keywords = extract_keywords(text)
+    questions = []
 
-        return questions
+    for concept in keywords[:num_questions]:
+        mcq = llm_generate_mcq(concept, "intermediate", text)
+        mcq["difficulty"] = "intermediate"
+        questions.append(mcq)
 
-    # ---------------- INTERMEDIATE ----------------
-    def generate_intermediate_questions(
-        self, concepts: List[str], concept_definitions: Dict[str, str]
-    ) -> List[QuizQuestion]:
-        questions = []
+    return questions
+def generate_advanced_questions(text: str, num_questions: int = 2) -> List[Dict]:
+    keywords = extract_keywords(text)
+    questions = []
 
-        for concept in concepts[:5]:
-            question_text = f"What best describes the concept of {concept}?"
+    for concept in keywords[:num_questions]:
+        mcq = llm_generate_mcq(concept, "advanced", text)
+        mcq["difficulty"] = "advanced"
+        questions.append(mcq)
 
-            correct_def = concept_definitions.get(
-                concept, f"{concept} is a key concept related to this topic."
-            )
+    return questions
+def generate_quiz(text: str) -> Dict:
+    """
+    Generates a quiz with three difficulty levels.
+    """
 
-            distractors = [
-                d for c, d in concept_definitions.items()
-                if c.lower() != concept.lower()
-            ]
-
-            options = self._build_options(correct_def, distractors)
-
-            questions.append(
-                QuizQuestion(
-                    question_text=question_text,
-                    options=options,
-                    difficulty_level=DifficultyLevel.INTERMEDIATE,
-                    explanation=f"{concept} refers to its role or meaning within the topic."
-                )
-            )
-
-        return questions
-
-    # ---------------- ADVANCED ----------------
-    def generate_advanced_questions(
-        self, relationships: List[Dict[str, str]]
-    ) -> List[QuizQuestion]:
-        questions = []
-
-        for rel in relationships[:5]:
-            subject = rel.get("subject")
-            verb = rel.get("verb")
-            obj = rel.get("object")
-
-            if not subject or not verb or not obj:
-                continue
-
-            question_text = f"Who {verb} {obj}?"
-
-            options = self._build_options(
-                correct=subject,
-                distractors=[obj, verb, "None of the above"]
-            )
-
-            questions.append(
-                QuizQuestion(
-                    question_text=question_text,
-                    options=options,
-                    difficulty_level=DifficultyLevel.ADVANCED,
-                    explanation=f"The relationship shows that {subject} {verb} {obj}."
-                )
-            )
-
-        return questions
-
-    # ---------------- FULL QUIZ ----------------
-    def generate_quiz(
-        self,
-        summary: str,
-        concepts: List[str],
-        key_terms: List[str],
-        relationships: List[Dict[str, str]],
-        concept_definitions: Optional[Dict[str, str]] = None
-    ) -> Dict[DifficultyLevel, List[QuizQuestion]]:
-
-        return {
-            DifficultyLevel.BEGINNER: self.generate_beginner_questions(
-                summary, key_terms
-            ),
-            DifficultyLevel.INTERMEDIATE: self.generate_intermediate_questions(
-                concepts, concept_definitions or {}
-            ),
-            DifficultyLevel.ADVANCED: self.generate_advanced_questions(
-                relationships
-            ),
-        },
-        
+    return {
+        "beginner": generate_beginner_questions(text),
+        "intermediate": generate_intermediate_questions(text),
+        "advanced": generate_advanced_questions(text)
+    }

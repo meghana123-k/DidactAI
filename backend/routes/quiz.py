@@ -1,25 +1,37 @@
 from flask import Blueprint, request, jsonify
-from services.quiz_generator import QuizGenerator
-from services.quiz_validator import QuizValidator
+
+from services.quiz_generator import generate_quiz
+from utils.text_preprocessing import extract_text_from_input
 
 quiz_bp = Blueprint("quiz", __name__)
 
-generator = QuizGenerator()
-validator = QuizValidator()
+@quiz_bp.route("/", methods=["POST"])
+def generate_quiz_route():
+    """
+    Accepts:
+    - text (optional)
+    - file (optional: pdf / docx / txt)
+    - source (optional): raw | summary
+    """
 
-@quiz_bp.route("/generate", methods=["POST"])
-def generate_quiz():
-    data = request.json
+    source = request.form.get("source", "summary")
 
-    quiz = generator.generate_quiz(
-        summary=data["summary"],
-        concepts=data["concepts"],
-        key_terms=data["key_terms"],
-        relationships=data["relationships"]
-    )
+    try:
+        text = extract_text_from_input(
+            text=request.form.get("text"),
+            file=request.files.get("file")
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
-    validated = {}
-    for level, questions in quiz.items():
-        validated[level.value] = validator.validate_and_score(questions)
+    if not text:
+        return jsonify({"error": "No input text provided"}), 400
+    try:
+        quiz = generate_quiz(text)
+    except Exception as e:
+         return jsonify({"error": f"Quiz generation failed: {e}"}), 500
+    return jsonify({
+        "source": source,
+        "quiz": quiz
+    })
 
-    return jsonify(validated)
