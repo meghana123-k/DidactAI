@@ -1,51 +1,54 @@
 import nltk
 import numpy as np
+from typing import List
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-# Ensure sentence tokenizer is available
-nltk.download('punkt', quiet=True)
+# Ensure tokenizer is available
+nltk.download("punkt", quiet=True)
 from nltk.tokenize import sent_tokenize
-
-
-def extractive_summary(text: str, ratio: float = 0.3) -> str:
+def extractive_summary(text: str, ratio: float = 0.35) -> str:
     """
-    Generates an extractive summary using TF-IDF sentence scoring.
+    Performs extractive summarization using TF-IDF sentence scoring.
 
     Args:
-        text (str): Input text to summarize
-        ratio (float): Proportion of sentences to include in the summary
+        text (str): Input text
+        ratio (float): Proportion of sentences to keep (0.1 – 0.5 recommended)
 
     Returns:
-        str: Extractive summary text
+        str: Extracted important sentences in original order
     """
 
     if not text or not text.strip():
         return ""
 
-    # Step 1: Sentence segmentation (NLP-safe)
-    sentences = sent_tokenize(text)
+    # Step 1: Sentence segmentation
+    sentences: List[str] = sent_tokenize(text)
 
-    # Step 2: Filter very short or non-informative sentences (word-based)
+    # Step 2: Filter very short / non-informative sentences
     clean_sentences = [
-        sent.strip() for sent in sentences if len(sent.split()) >= 5
+        s.strip() for s in sentences if len(s.split()) >= 5
     ]
 
     if not clean_sentences:
         return ""
 
-    # Step 3: TF-IDF vectorization (sentence-level)
-    # Handle very short texts safely
-    if len(clean_sentences) < 3:
+    # If text is already short, return as-is
+    if len(clean_sentences) <= 3:
         return " ".join(clean_sentences)
 
-    vectorizer = TfidfVectorizer(
-        stop_words="english"
-    )
+    # Clamp ratio safely
+    ratio = min(max(ratio, 0.1), 0.5)
 
+    # Step 3: TF-IDF vectorization (sentence-level)
+    vectorizer = TfidfVectorizer(stop_words="english")
     tfidf_matrix = vectorizer.fit_transform(clean_sentences)
 
-    # Step 4: Sentence scoring using mean TF-IDF
-    sentence_scores = np.asarray(tfidf_matrix.mean(axis=1)).ravel()
+    # Step 4: Sentence scoring (length-normalized)
+    sentence_scores = np.asarray(tfidf_matrix.sum(axis=1)).ravel()
+    sentence_lengths = np.array([len(s.split()) for s in clean_sentences])
+
+    # Normalize to avoid bias toward long sentences
+    sentence_scores = sentence_scores / np.sqrt(sentence_lengths)
 
     # Step 5: Rank sentences by importance
     ranked_indices = np.argsort(sentence_scores)[::-1]
@@ -55,6 +58,6 @@ def extractive_summary(text: str, ratio: float = 0.3) -> str:
     selected_indices = sorted(ranked_indices[:num_sentences])
 
     # Step 7: Preserve original order
-    summary = " ".join(clean_sentences[i] for i in selected_indices)
+    summary_sentences = [clean_sentences[i] for i in selected_indices]
 
-    return summary
+    return " ".join(summary_sentences)

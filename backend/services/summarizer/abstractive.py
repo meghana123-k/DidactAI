@@ -1,59 +1,105 @@
-from transformers import pipeline
-import nltk
+import os
+import json
+from typing import Optional
 
-nltk.download("punkt", quiet=True)
-from nltk.tokenize import sent_tokenize
+from openai import OpenAI
+from dotenv import load_dotenv
+
+load_dotenv()
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 
-class AbstractiveSummarizer:
-    def __init__(self, model_name: str = "facebook/bart-large-cnn"):
-        self.summarizer = pipeline(
-            "summarization",
-            model=model_name,
-            tokenizer=model_name
-        )
-        self.max_length = 150
-        self.min_length = 60
-        self.max_sentences_per_chunk = 10
+# ---------- OpenAI Client ----------
+openai_client: Optional[OpenAI] = None
+if OPENAI_API_KEY:
+    openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-    def _chunk_text(self, text):
-        sentences = sent_tokenize(text)
-        chunks = []
 
-        for i in range(0, len(sentences), self.max_sentences_per_chunk):
-            chunk = " ".join(sentences[i:i + self.max_sentences_per_chunk])
-            if chunk.strip():
-                chunks.append(chunk)
+# ---------- Gemini Client ----------
+gemini_client = None
+if GEMINI_API_KEY:
+    try:
+        from google import genai
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    except Exception:
+        gemini_client = None
 
-        return chunks
 
-    def _summarize_chunk(self, text):
-        word_count = len(text.split())
+# ---------- Prompt Templates ----------
+PROMPTS = {
+    "basic": (
+        "Explain the following content like teaching a child. "
+        "Use very simple words, short sentences, and intuitive examples. "
+        "Avoid technical jargon unless clearly explained."
+    ),
+    "detailed": (
+        "Explain the content clearly and in detail.Cover ALL major concepts present.If multiple techniques or approaches are discussed, explain EACH of them and compare them where relevant.Do not ignore any important concept."
+    ),
+    "overview": (
+        "Explain the following content at a conceptual, high level. "
+        "Start from general ideas and explain how the concepts relate to each other. "
+        "Focus on the big picture."
+    )
+}
 
-        if word_count < 50:
-            return text.strip()
 
-        max_len = min(self.max_length, int(word_count * 0.8))
-        min_len = min(self.min_length, int(word_count * 0.4))
+# ---------- OpenAI Explanation ----------
+def _explain_openai(text: str, mode: str) -> str:
+    response = openai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": PROMPTS[mode]},
+            {"role": "user", "content": text}
+        ],
+        temperature=0,
+        max_tokens=400
+    )
 
-        result = self.summarizer(
-            text,
-            max_length=max_len,
-            min_length=min_len,
-            do_sample=False,
-            truncation=True
-        )
+    return response.choices[0].message.content.strip()
 
-        return result[0]["summary_text"].strip()
 
-    def summarize(self, text: str) -> str:
-        if not text or not text.strip():
-            return ""
+# ---------- Gemini Explanation ----------
+def _explain_gemini(text: str, mode: str) -> str:
+    prompt = PROMPTS[mode] + "\n\n" + text
 
-        chunks = self._chunk_text(text)
+    response = gemini_client.models.generate_content(
+        model="gemini-flash-latest",
+        contents=prompt
+    )
 
-        summaries = [self._summarize_chunk(c) for c in chunks]
+    return response.text.strip()
 
-        merged = " ".join(summaries)
 
-        return self._summarize_chunk(merged)
+# ---------- Public API ----------
+def explain(text: str, mode: str) -> str:
+    """
+    Central LLM explanation gateway.
+
+    mode ∈ {"basic", "detailed", "overview"}
+    """
+
+    if not text or not text.strip():
+        return ""
+
+    if mode not in PROMPTS:
+        raise ValueError(f"Invalid mode: {mode}")
+
+    # 1️⃣ Try OpenAI first
+    if openai_client:
+        try:
+            return _explain_openai(text, mode)
+        except Exception as e:
+            print("OpenAI failed:", e)
+
+    # 2️⃣ Fallback to Gemini
+    if gemini_client:
+        try:
+            return _explain_gemini(text, mode)
+        except Exception as e:
+            print("Gemini failed:", e)
+
+    # 3️⃣ Final graceful fallback (no fake AI)
+    sentences = text.split(".")
+    return ". ".join(sentences[:3]).strip() + "..."

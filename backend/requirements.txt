@@ -7,3 +7,9 @@ spacy
 scikit-learn
 pandas
 numpy
+PyPDF2
+python-docx
+openai
+google-api-python-client
+python-dotenv
+requests
