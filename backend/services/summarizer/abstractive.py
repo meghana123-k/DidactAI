@@ -1,29 +1,22 @@
 from transformers import pipeline
 import nltk
-from typing import List
 
 nltk.download("punkt", quiet=True)
 from nltk.tokenize import sent_tokenize
 
 
 class AbstractiveSummarizer:
-    """
-    Abstractive summarization using transformer-based models (BART/T5)
-    with hierarchical summarization for long documents.
-    """
-
     def __init__(self, model_name: str = "facebook/bart-large-cnn"):
         self.summarizer = pipeline(
             "summarization",
             model=model_name,
             tokenizer=model_name
         )
-        self.max_sentences_per_chunk = 10
-        self.min_length = 60
         self.max_length = 150
+        self.min_length = 60
+        self.max_sentences_per_chunk = 10
 
-    def _chunk_text(self, text: str) -> List[str]:
-        """Split text into sentence-based chunks."""
+    def _chunk_text(self, text):
         sentences = sent_tokenize(text)
         chunks = []
 
@@ -34,42 +27,33 @@ class AbstractiveSummarizer:
 
         return chunks
 
-    def _summarize(self, text: str) -> str:
-        """Summarize a given text chunk."""
-        input_length = len(text.split())
+    def _summarize_chunk(self, text):
+        word_count = len(text.split())
 
-        max_len = min(self.max_length, max(30, input_length))
-        min_len = min(self.min_length, max(10, input_length // 2))
+        if word_count < 50:
+            return text.strip()
 
-        summary = self.summarizer(
+        max_len = min(self.max_length, int(word_count * 0.8))
+        min_len = min(self.min_length, int(word_count * 0.4))
+
+        result = self.summarizer(
             text,
             max_length=max_len,
             min_length=min_len,
-            do_sample=False
+            do_sample=False,
+            truncation=True
         )
 
-
-        return summary[0]["summary_text"]
+        return result[0]["summary_text"].strip()
 
     def summarize(self, text: str) -> str:
-        """
-        Generate a coherent abstractive summary for long documents.
-        """
-
         if not text or not text.strip():
             return ""
 
         chunks = self._chunk_text(text)
 
-        if not chunks:
-            return ""
+        summaries = [self._summarize_chunk(c) for c in chunks]
 
-        # Summarize each chunk
-        chunk_summaries = [self._summarize(chunk) for chunk in chunks]
+        merged = " ".join(summaries)
 
-        # Merge summaries and summarize again for coherence
-        merged_summary = " ".join(chunk_summaries)
-
-        final_summary = self._summarize(merged_summary)
-
-        return final_summary
+        return self._summarize_chunk(merged)

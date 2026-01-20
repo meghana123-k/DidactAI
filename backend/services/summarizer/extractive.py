@@ -34,10 +34,14 @@ def extractive_summary(text: str, ratio: float = 0.3) -> str:
         return ""
 
     # Step 3: TF-IDF vectorization (sentence-level)
+    # Handle very short texts safely
+    if len(clean_sentences) < 3:
+        return " ".join(clean_sentences)
+
     vectorizer = TfidfVectorizer(
-        stop_words="english",
-        max_df=0.9
+        stop_words="english"
     )
+
     tfidf_matrix = vectorizer.fit_transform(clean_sentences)
 
     # Step 4: Sentence scoring using mean TF-IDF
