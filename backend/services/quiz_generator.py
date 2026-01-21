@@ -1,106 +1,232 @@
 import os
+import json
 import random
-from typing import List, Dict
+import re
+from typing import List, Dict, Tuple
 from dotenv import load_dotenv
-import nltk
-from nltk.tokenize import sent_tokenize, word_tokenize
-from nltk.corpus import stopwords
 
-from openai import OpenAI
+# ---------- LLM CLIENTS ----------
+from openai import OpenAI          # Used for Groq (OpenAI-compatible)
+from mistralai import Mistral      # Secondary fallback
 
 load_dotenv()
 
-nltk.download("punkt", quiet=True)
-nltk.download("stopwords", quiet=True)
+# Groq (PRIMARY)
+groq_client = OpenAI(
+    base_url="https://api.groq.com/openai/v1",
+    api_key=os.getenv("GROQ_API_KEY")
+)
 
-STOPWORDS = set(stopwords.words("english"))
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Mistral (SECONDARY)
+mistral_client = Mistral(
+    api_key=os.getenv("MISTRAL_API_KEY")
+)
 
-def extract_keywords(text: str, max_keywords: int = 8) -> List[str]:
-    words = word_tokenize(text.lower())
-    candidates = [
-        w for w in words
-        if w.isalpha() and w not in STOPWORDS and len(w) > 3
-    ]
+# ---------- SHARED CLEANING ----------
+GENERIC_TERMS = {
+    "programming", "software", "system",
+    "process", "method", "concept", "idea", "approach"
+}
 
-    freq = {}
-    for w in candidates:
-        freq[w] = freq.get(w, 0) + 1
+def clean_concepts(concepts: List[str]) -> List[str]:
+    """Final deterministic sanitation."""
+    cleaned = []
+    for c in concepts:
+        c = c.strip()
+        if not (1 <= len(c.split()) <= 3):
+            continue
+        if c.lower() in GENERIC_TERMS:
+            continue
+        cleaned.append(c)
+    return list(dict.fromkeys(cleaned))
 
-    return sorted(freq, key=freq.get, reverse=True)[:max_keywords]
-def llm_generate_mcq(concept: str, difficulty: str, context: str) -> Dict:
-    """
-    LLM generates phrasing + distractors.
-    Correct answer is ALWAYS the concept itself.
-    """
 
+# ---------- CONCEPT EXTRACTION (PRIMARY: GROQ) ----------
+def extract_concepts_groq(summary: str) -> List[str]:
     prompt = f"""
-Create ONE multiple-choice question.
+Extract academic concepts for assessment generation.
 
-CONSTRAINTS:
-- Topic: {concept}
-- Difficulty: {difficulty}
-- Context is for understanding ONLY
-- One correct answer must be: "{concept}"
-- Generate 3 plausible distractors
+STRICT RULES:
+- ONLY concepts explicitly present in the text
+- Canonical textbook terms only
+- 1–3 words per concept
+- No generic terms (programming, system, process)
+- No definitions or verb phrases
+- No fragments
 - Output STRICT JSON only
 
 Format:
-{{
-  "question": "",
-  "options": ["{concept}", "distractor1", "distractor2", "distractor3"],
-  "answer": "{concept}"
-}}
+{{ "concepts": [] }}
 
-Context:
-{context}
+Text:
+{summary}
 """
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
+    response = groq_client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
-        max_tokens=200
+        response_format={"type": "json_object"}
     )
 
-    return eval(response.choices[0].message.content)
-def generate_beginner_questions(text: str, num_questions: int = 3) -> List[Dict]:
-    keywords = extract_keywords(text)
-    questions = []
+    data = json.loads(response.choices[0].message.content)
+    return data.get("concepts", [])
 
-    for concept in keywords[:num_questions]:
-        mcq = llm_generate_mcq(concept, "beginner", text)
-        mcq["difficulty"] = "beginner"
-        questions.append(mcq)
 
-    return questions
-def generate_intermediate_questions(text: str, num_questions: int = 3) -> List[Dict]:
-    keywords = extract_keywords(text)
-    questions = []
+# ---------- CONCEPT EXTRACTION (SECONDARY: MISTRAL) ----------
+def extract_concepts_mistral(summary: str) -> List[str]:
+    prompt = f"""
+Extract academic concepts for assessment generation.
 
-    for concept in keywords[:num_questions]:
-        mcq = llm_generate_mcq(concept, "intermediate", text)
-        mcq["difficulty"] = "intermediate"
-        questions.append(mcq)
+Rules:
+- Concepts must appear in text
+- Canonical textbook terms
+- 1–3 words
+- No generic terms
+- JSON ONLY
 
-    return questions
-def generate_advanced_questions(text: str, num_questions: int = 2) -> List[Dict]:
-    keywords = extract_keywords(text)
-    questions = []
+Format:
+{{ "concepts": [] }}
 
-    for concept in keywords[:num_questions]:
-        mcq = llm_generate_mcq(concept, "advanced", text)
-        mcq["difficulty"] = "advanced"
-        questions.append(mcq)
+Text:
+{summary}
+"""
+    response = mistral_client.chat.complete(
+        model="mistral-small-latest",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0
+    )
 
-    return questions
-def generate_quiz(text: str) -> Dict:
+    data = json.loads(response.choices[0].message.content)
+    return data.get("concepts", [])
+
+
+# ---------- FINAL FALLBACK (DETERMINISTIC, TEXT-ONLY) ----------
+def extract_noun_phrases(summary: str) -> List[str]:
     """
-    Generates a quiz with three difficulty levels.
+    Last-resort extraction: multi-word capitalized phrases.
+    NO invention.
     """
+    phrases = re.findall(
+        r'\b[A-Z][a-z]+(?:[-\s][A-Z][a-z]+){1,2}\b',
+        summary
+    )
+    return list(dict.fromkeys(phrases))
+
+
+# ---------- ADAPTIVE CONCEPT EXTRACTION ----------
+def get_concepts_adaptive(summary: str, max_concepts: int = 8) -> List[str]:
+    """
+    Provider-agnostic, resilient extraction.
+    """
+    extractors = [
+        extract_concepts_groq,
+        extract_concepts_mistral
+    ]
+
+    for extractor in extractors:
+        try:
+            concepts = extractor(summary)
+            concepts = clean_concepts(concepts)
+            if len(concepts) >= 3:
+                return concepts[:max_concepts]
+        except Exception as e:
+            print(f"[Extractor failed: {extractor.__name__}] {e}")
+
+    # FINAL fallback
+    concepts = clean_concepts(extract_noun_phrases(summary))
+    return concepts[:max_concepts]
+
+
+# ---------- PARTITIONING ----------
+def partition_concepts(concepts: List[str]) -> Tuple[List[str], List[str], List[str]]:
+    if len(concepts) >= 3:
+        return concepts[:1], concepts[1:2], concepts[2:3]
+    elif len(concepts) == 2:
+        return concepts[:1], concepts[1:], concepts[:1]
+    elif len(concepts) == 1:
+        return concepts, concepts, concepts
+    return [], [], []
+
+
+# ---------- MCQ GENERATION (GROQ) ----------
+def llm_generate_mcq(concept: str, difficulty: str, summary: str) -> Dict:
+    difficulty_focus = {
+        "beginner": "definition or recognition",
+        "intermediate": "usage or relationship",
+        "advanced": "edge case or limitation"
+    }
+
+    prompt = f"""
+You are an expert educator writing MCQs.
+
+Rules:
+- Topic MUST be exactly: {concept}
+- Difficulty: {difficulty} ({difficulty_focus[difficulty]})
+- Correct answer MUST be exactly "{concept}"
+- 3 plausible distractors
+- Same grammatical form
+- JSON ONLY
+
+Format:
+{{"question":"","options":["{concept}","d1","d2","d3"],"answer":"{concept}"}}
+
+Context:
+{summary[:800]}
+"""
+
+    try:
+        response = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.25,
+            response_format={"type": "json_object"}
+        )
+
+        mcq = json.loads(response.choices[0].message.content)
+
+        if mcq.get("answer") != concept:
+            raise ValueError("Answer mismatch")
+
+        random.shuffle(mcq["options"])
+        mcq["difficulty"] = difficulty
+        mcq["answer"] = concept
+        return mcq
+
+    except Exception as e:
+        print(f"[MCQ FALLBACK] {concept} → {e}")
+        opts = [concept, "Option A", "Option B", "Option C"]
+        random.shuffle(opts)
+        return {
+            "question": f"What best describes {concept}?",
+            "options": opts,
+            "answer": concept,
+            "difficulty": difficulty
+        }
+
+
+# ---------- PUBLIC API ----------
+def generate_quiz_from_summary(summary: str, mode: str = "conceptual") -> Dict:
+    """
+    INPUT: summary text (basic / detailed / conceptual)
+    OUTPUT: quiz aligned to summary
+    """
+    concepts = get_concepts_adaptive(summary)
+    b, i, a = partition_concepts(concepts)
+
+    quiz = {
+        "beginner": [llm_generate_mcq(c, "beginner", summary) for c in b],
+        "intermediate": [llm_generate_mcq(c, "intermediate", summary) for c in i],
+        "advanced": [llm_generate_mcq(c, "advanced", summary) for c in a]
+    }
 
     return {
-        "beginner": generate_beginner_questions(text),
-        "intermediate": generate_intermediate_questions(text),
-        "advanced": generate_advanced_questions(text)
+        "quiz": quiz,
+        "meta": {
+            "source": "summary",
+            "mode": mode,
+            "concepts": concepts,
+            "n_concepts": len(concepts),
+            "llm_primary": "groq",
+            "llm_fallback": "mistral"
+        }
     }

@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 
-from services.quiz_generator import generate_quiz
+from services.quiz_generator import generate_quiz_from_summary
 from utils.text_preprocessing import extract_text_from_input
 
 quiz_bp = Blueprint("quiz", __name__)
@@ -27,7 +27,7 @@ def generate_quiz_route():
     if not text:
         return jsonify({"error": "No input text provided"}), 400
     try:
-        quiz = generate_quiz(text)
+        quiz = generate_quiz_from_summary(text)
     except Exception as e:
          return jsonify({"error": f"Quiz generation failed: {e}"}), 500
     return jsonify({
