@@ -18,3 +18,4 @@ data/processed/
 Thumbs.db
 
 .env
+backend/.env
