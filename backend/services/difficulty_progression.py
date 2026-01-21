@@ -1,93 +1,91 @@
-from typing import Dict
-from datetime import datetime
+from typing import Dict, List
 
 # ============================================================
-# CONFIGURATION
+# CONFIG
 # ============================================================
-
-# Minimum accuracy required to unlock next level
-UNLOCK_THRESHOLDS = {
-    "beginner": 60,
-    "intermediate": 60,
-    "advanced": 0   # no unlock after advanced
-}
-
-# Order is IMPORTANT
 DIFFICULTY_ORDER = ["beginner", "intermediate", "advanced"]
 
+UNLOCK_RULES = {
+    "beginner": {
+        "min_accuracy": 60,
+        "max_weak_concepts": 999  # no restriction
+    },
+    "intermediate": {
+        "min_accuracy": 65,
+        "max_weak_concepts": 2
+    },
+    "advanced": {
+        "min_accuracy": 70,
+        "max_weak_concepts": 0
+    }
+}
+
+WEAK_CONCEPT_THRESHOLD = 40  # %
 
 # ============================================================
-# CORE ENGINE
+# CORE LOGIC
 # ============================================================
-
-def evaluate_difficulty_progression(
-    analytics_result: Dict
+def determine_next_difficulty(
+    analytics: Dict
 ) -> Dict:
     """
-    Determines difficulty progression based on analytics output.
+    Determines which difficulty level the user can access next.
 
     Input:
-    - analytics_result (from analytics_engine.analyze_quiz_performance)
+    - analytics output from analytics_engine
 
     Output:
-    - unlocked_levels
-    - next_recommended_level
-    - repeat_level (if any)
+    - progression decision
     """
 
-    difficulty_readiness = analytics_result.get("difficulty_readiness", {})
-    passed = analytics_result.get("passed", False)
+    difficulty_stats = analytics["difficulty_analysis"]
+    concept_stats = analytics["concept_analysis"]
+
+    # Count weak concepts
+    weak_concepts = [
+        c for c, v in concept_stats.items()
+        if v["accuracy"] < WEAK_CONCEPT_THRESHOLD
+    ]
 
     unlocked = []
-    repeat_level = None
-    next_level = None
+    blocked_reason = None
 
-    # --------------------------------------------------------
-    # STEP 1: Determine unlocked levels
-    # --------------------------------------------------------
     for level in DIFFICULTY_ORDER:
-        stats = difficulty_readiness.get(level, {})
-        accuracy = stats.get("accuracy", 0)
+        level_accuracy = difficulty_stats.get(level, {}).get("accuracy", 0)
+        rules = UNLOCK_RULES[level]
 
-        if accuracy >= UNLOCK_THRESHOLDS[level]:
-            unlocked.append(level)
-        else:
-            repeat_level = level
+        if level_accuracy < rules["min_accuracy"]:
+            blocked_reason = (
+                f"{level} accuracy {level_accuracy}% "
+                f"is below required {rules['min_accuracy']}%"
+            )
             break
 
-    # --------------------------------------------------------
-    # STEP 2: Determine next recommended level
-    # --------------------------------------------------------
-    if repeat_level:
-        next_level = repeat_level
-    else:
-        if len(unlocked) < len(DIFFICULTY_ORDER):
-            next_level = DIFFICULTY_ORDER[len(unlocked)]
-        else:
-            next_level = "completed"
+        if len(weak_concepts) > rules["max_weak_concepts"]:
+            blocked_reason = (
+                f"Too many weak concepts ({len(weak_concepts)}) "
+                f"for {level} level"
+            )
+            break
 
-    # --------------------------------------------------------
-    # FINAL RESPONSE
-    # --------------------------------------------------------
+        unlocked.append(level)
+
     return {
-        "timestamp": datetime.utcnow().isoformat(),
-
         "unlocked_levels": unlocked,
-        "repeat_level": repeat_level,
-        "next_recommended_level": next_level,
-
-        "can_attempt_advanced": "advanced" in unlocked,
-        "status": _status_label(passed, next_level)
+        "next_level": _next_level(unlocked),
+        "weak_concepts": weak_concepts,
+        "blocked_reason": blocked_reason
     }
 
 
-# ============================================================
-# HELPERS
-# ============================================================
+def _next_level(unlocked: List[str]) -> str:
+    if not unlocked:
+        return "beginner"
 
-def _status_label(passed: bool, next_level: str) -> str:
-    if next_level == "completed":
-        return "course_completed"
-    if not passed:
-        return "retry_required"
-    return "progressing"
+    last = unlocked[-1]
+    idx = DIFFICULTY_ORDER.index(last)
+
+    if idx + 1 < len(DIFFICULTY_ORDER):
+        return DIFFICULTY_ORDER[idx + 1]
+
+    return "certificate"
