@@ -1,120 +1,214 @@
-from typing import List
-from difflib import SequenceMatcher
+from typing import Dict, List, Any
+from collections import defaultdict
+from datetime import datetime
+# ============================================================
+# CONFIGURATION
+# ============================================================
+DIFFICULTY_WEIGHTS = {
+    "beginner": 1,
+    "intermediate": 2,
+    "advanced": 3
+}
 
-from services.quiz_generator import (
-    QuizQuestion,
-    QuestionOption,
-    DifficultyLevel
-)
+PASS_PERCENTAGE = 60  # configurable
 
 
-class QuizValidator:
+# ============================================================
+# CORE VALIDATION LOGIC
+# ============================================================
+def validate_quiz_attempt(
+    quiz: Dict,
+    user_answers: Dict[str, str],
+    attempt_metadata: Dict[str, Dict] = None,
+    mode: str = "post"
+) -> Dict:
     """
-    Validates generated quiz questions and assigns a normalized difficulty score.
+    Validates a full quiz attempt.
+
+    Parameters:
+    - quiz: generated quiz object (from quiz_generator)
+    - user_answers: {question_id: selected_option}
+    - attempt_metadata: optional timing/behavioral data
+    - mode: pre / post (for learning gain support)
+
+    Returns:
+    - structured evaluation result
     """
 
-    MIN_QUESTION_LENGTH = 10
-    MIN_OPTIONS = 4
+    attempt_metadata = attempt_metadata or {}
 
-    def __init__(self):
-        self._seen_questions = set()
+    total_score = 0
+    max_score = 0
+    total_questions = 0
+    correct_answers = 0
 
-    # ---------------- INTERNAL CHECKS ----------------
+    difficulty_stats = defaultdict(lambda: {"attempted": 0, "correct": 0})
+    concept_stats = defaultdict(lambda: {"attempted": 0, "correct": 0})
 
-    def _is_duplicate(self, question_text: str) -> bool:
-        normalized = question_text.lower().strip()
-        if normalized in self._seen_questions:
-            return True
-        self._seen_questions.add(normalized)
-        return False
+    detailed_results = []
 
-    def _has_single_correct_option(self, options: List[QuestionOption]) -> bool:
-        return sum(opt.is_correct for opt in options) == 1
+    for level, questions in quiz["quiz"].items():
+        for idx, q in enumerate(questions):
+            question_id = f"{level}_{idx}"
+            selected = user_answers.get(question_id)
+            correct = q["answer"]
+            difficulty = q["difficulty"]
+            concept = q["answer"]  # atomic normalization
 
-    def _answer_leakage(self, question: QuizQuestion) -> bool:
-        correct_text = next(
-            opt.text.lower() for opt in question.options if opt.is_correct
-        )
-        question_text = question.question_text.lower()
+            weight = DIFFICULTY_WEIGHTS.get(difficulty, 1)
 
-        key_terms = [w for w in correct_text.split() if len(w) > 3]
-        return any(term in question_text for term in key_terms)
+            is_correct = selected == correct
 
-    # ---------------- VALIDATION ----------------
+            # ---- scoring ----
+            max_score += weight
+            total_questions += 1
+            difficulty_stats[difficulty]["attempted"] += 1
+            concept_stats[concept]["attempted"] += 1
 
-    def is_valid(self, question: QuizQuestion) -> bool:
-        if len(question.question_text.strip()) < self.MIN_QUESTION_LENGTH:
-            return False
+            if is_correct:
+                total_score += weight
+                correct_answers += 1
+                difficulty_stats[difficulty]["correct"] += 1
+                concept_stats[concept]["correct"] += 1
 
-        if len(question.options) < self.MIN_OPTIONS:
-            return False
+            detailed_results.append({
+                "question_id": question_id,
+                "difficulty": difficulty,
+                "concept": concept,
+                "selected": selected,
+                "correct_answer": correct,
+                "is_correct": is_correct,
+                "weight": weight,
+                "time_taken": attempt_metadata.get(question_id, {}).get("time_taken"),
+            })
 
-        if not self._has_single_correct_option(question.options):
-            return False
+    # ============================================================
+    # METRICS
+    # ============================================================
+    accuracy = round((correct_answers / total_questions) * 100, 2) if total_questions else 0
 
-        if self._answer_leakage(question):
-            return False
-
-        if self._is_duplicate(question.question_text):
-            return False
-
-        return True
-
-    # ---------------- DIFFICULTY SCORING ----------------
-
-    def _option_similarity(self, options: List[QuestionOption]) -> float:
-        texts = [opt.text.lower() for opt in options]
-        similarities = []
-
-        for i in range(len(texts)):
-            for j in range(i + 1, len(texts)):
-                ratio = SequenceMatcher(None, texts[i], texts[j]).ratio()
-                similarities.append(ratio)
-
-        return sum(similarities) / len(similarities) if similarities else 0.0
-
-    def _difficulty_score(self, question: QuizQuestion) -> float:
-        """
-        Returns difficulty score between 0.0 and 1.0
-        """
-        score = 0.0
-
-        # 1️⃣ Question length (0–0.25)
-        word_count = len(question.question_text.split())
-        score += min(word_count / 40, 1.0) * 0.25
-
-        # 2️⃣ Option similarity (0–0.35)
-        score += self._option_similarity(question.options) * 0.35
-
-        # 3️⃣ Cognitive level (0–0.25)
-        level_weight = {
-            DifficultyLevel.BEGINNER: 0.10,
-            DifficultyLevel.INTERMEDIATE: 0.18,
-            DifficultyLevel.ADVANCED: 0.25,
+    difficulty_breakdown = {
+        d: {
+            "accuracy": round(
+                (v["correct"] / v["attempted"]) * 100, 2
+            ) if v["attempted"] else 0
         }
-        score += level_weight.get(question.difficulty_level, 0.15)
+        for d, v in difficulty_stats.items()
+    }
 
-        # 4️⃣ Explanation presence (0–0.15)
-        if question.explanation:
-            score += 0.15
+    concept_breakdown = {
+        c: {
+            "accuracy": round(
+                (v["correct"] / v["attempted"]) * 100, 2
+            ) if v["attempted"] else 0
+        }
+        for c, v in concept_stats.items()
+    }
 
-        return round(min(score, 1.0), 2)
+    passed = accuracy >= PASS_PERCENTAGE
 
-    # ---------------- PUBLIC API ----------------
+    # ============================================================
+    # FINAL RESPONSE
+    # ============================================================
+    return {
+        "summary": {
+            "mode": mode,
+            "total_score": total_score,
+            "max_score": max_score,
+            "accuracy": accuracy,
+            "passed": passed,
+            "timestamp": datetime.utcnow().isoformat()
+        },
+        "difficulty_analysis": difficulty_breakdown,
+        "concept_analysis": concept_breakdown,
+        "detailed_results": detailed_results
+    }
 
-    def validate_and_score(
-        self, questions: List[QuizQuestion]
-    ) -> List[QuizQuestion]:
-        """
-        Filters invalid questions and assigns difficulty scores.
-        """
-        validated = []
+def validate_single_answer(
+    correct_answer: str,
+    selected_option: str
+) -> bool:
+    """
+    Returns True if the selected option is correct.
+    """
+    return correct_answer.strip() == selected_option.strip()
 
-        for q in questions:
-            if not self.is_valid(q):
-                continue
 
-            q.difficulty_score = self._difficulty_score(q)
-            validated.append(q)
 
-        return validated
+def validate_quiz(
+    quiz: Dict[str, List[Dict[str, Any]]],
+    user_answers: Dict[str, List[int]]
+) -> Dict[str, Any]:
+    """
+    Validates an entire quiz submission.
+
+    Parameters:
+    - quiz: generated quiz (grouped by difficulty)
+    - user_answers: selected option indices per difficulty
+
+    Returns:
+    - detailed evaluation report
+    """
+
+    report = {
+        "total_questions": 0,
+        "total_correct": 0,
+        "score_percent": 0.0,
+        "by_level": {},
+        "by_question": []
+    }
+
+    for level, questions in quiz.items():
+        level_correct = 0
+        level_total = len(questions)
+
+        answers_for_level = user_answers.get(level, [])
+
+        for idx, question in enumerate(questions):
+            # Defensive checks
+            if idx >= len(answers_for_level):
+                selected_index = None
+                selected_option = None
+                is_correct = False
+            else:
+                selected_index = answers_for_level[idx]
+                options = question["options"]
+
+                if selected_index < 0 or selected_index >= len(options):
+                    selected_option = None
+                    is_correct = False
+                else:
+                    selected_option = options[selected_index]
+                    is_correct = validate_single_answer(
+                        question["answer"],
+                        selected_option
+                    )
+
+            if is_correct:
+                level_correct += 1
+                report["total_correct"] += 1
+
+            report["by_question"].append({
+                "level": level,
+                "question": question["question"],
+                "selected_option": selected_option,
+                "correct_answer": question["answer"],
+                "is_correct": is_correct
+            })
+
+        report["by_level"][level] = {
+            "correct": level_correct,
+            "total": level_total,
+            "accuracy": round(
+                (level_correct / level_total) * 100, 2
+            ) if level_total else 0.0
+        }
+
+        report["total_questions"] += level_total
+
+    if report["total_questions"] > 0:
+        report["score_percent"] = round(
+            (report["total_correct"] / report["total_questions"]) * 100, 2
+        )
+
+    return report

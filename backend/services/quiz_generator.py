@@ -136,16 +136,47 @@ def get_concepts_adaptive(summary: str, max_concepts: int = 8) -> List[str]:
     concepts = clean_concepts(extract_noun_phrases(summary))
     return concepts[:max_concepts]
 
-
+QUESTIONS_PER_LEVEL = 5
+LEVELS = 3
 # ---------- PARTITIONING ----------
-def partition_concepts(concepts: List[str]) -> Tuple[List[str], List[str], List[str]]:
-    if len(concepts) >= 3:
-        return concepts[:1], concepts[1:2], concepts[2:3]
-    elif len(concepts) == 2:
-        return concepts[:1], concepts[1:], concepts[:1]
-    elif len(concepts) == 1:
-        return concepts, concepts, concepts
-    return [], [], []
+def partition_concepts(
+    
+    concepts: List[str],
+    per_level: int = QUESTIONS_PER_LEVEL
+) -> Tuple[List[str], List[str], List[str]]:
+    """
+    Partition concepts into 3 levels (beginner, intermediate, advanced).
+
+    - If concepts >= required → no reuse
+    - If concepts < required → deterministic cyclic reuse
+    """
+
+    if not concepts:
+        return [], [], []
+
+    n = len(concepts)
+    total_needed = per_level * LEVELS  # 15
+
+    # Case 1: Enough unique concepts (no reuse)
+    if n >= total_needed:
+        return (
+            concepts[:per_level],
+            concepts[per_level:2 * per_level],
+            concepts[2 * per_level:3 * per_level],
+        )
+
+    # Case 2: Deterministic cyclic reuse
+    def take(start_index: int) -> List[str]:
+        return [
+            concepts[(start_index + i) % n]
+            for i in range(per_level)
+        ]
+
+    return (
+        take(0),              # beginner
+        take(per_level),      # intermediate
+        take(2 * per_level),  # advanced
+    )
 
 
 # ---------- MCQ GENERATION (GROQ) ----------
