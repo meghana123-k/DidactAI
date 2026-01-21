@@ -1,3 +1,5 @@
+# just for testing
+
 from backend.models.quiz_attempt import init_db
 
 init_db()

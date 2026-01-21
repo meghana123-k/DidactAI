@@ -1,75 +1,66 @@
 from typing import Dict, List, Tuple
 
 # ============================================================
-# CONFIGURATION
+# CONFIG
 # ============================================================
-
-WEAK_THRESHOLD = 60        # Below this → weak concept
-STRONG_THRESHOLD = 85     # Above this → mastered
-MAX_CONCEPTS = 8          # Hard cap for quiz generator
+WEAK_THRESHOLD = 60
+MAX_REQUIZ_CONCEPTS = 5
 
 
 # ============================================================
-# CORE ENGINE
+# CORE SELECTION
 # ============================================================
-
 def select_adaptive_concepts(
-    concept_analysis: Dict[str, Dict],
-    all_concepts: List[str],
-    per_quiz: int = MAX_CONCEPTS
+    concept_analysis: Dict[str, Dict]
+) -> List[str]:
+    """
+    Selects weak concepts deterministically.
+    """
+
+    if not concept_analysis:
+        return []
+
+    weak = [
+        (concept, stats["accuracy"])
+        for concept, stats in concept_analysis.items()
+        if "accuracy" in stats and stats["accuracy"] < WEAK_THRESHOLD
+    ]
+
+    weak.sort(key=lambda x: x[1])  # weakest first
+    return [c for c, _ in weak[:MAX_REQUIZ_CONCEPTS]]
+
+
+# ============================================================
+# PLAN GENERATION
+# ============================================================
+def generate_adaptive_plan(
+    analytics: Dict,
+    current_level: str
 ) -> Dict:
     """
-    Selects concepts for the next quiz adaptively.
-
-    Priority:
-    1. Weak concepts
-    2. Medium concepts
-    3. Strong concepts (least priority)
-
-    Returns:
-    - selected_concepts
-    - breakdown (weak / medium / strong)
+    Generates re-quiz plan based on analytics_engine output.
     """
 
-    weak = []
-    medium = []
-    strong = []
+    concept_progress = analytics.get("concept_progress", {})
 
-    for concept in all_concepts:
-        stats = concept_analysis.get(concept, {})
-        accuracy = stats.get("accuracy", 0)
+    # Convert analytics format → selector format
+    concept_analysis = {
+        concept: {"accuracy": data["post_accuracy"]}
+        for concept, data in concept_progress.items()
+        if isinstance(data, dict) and "post_accuracy" in data
+    }
 
-        if accuracy < WEAK_THRESHOLD:
-            weak.append(concept)
-        elif accuracy < STRONG_THRESHOLD:
-            medium.append(concept)
-        else:
-            strong.append(concept)
+    weak_concepts = select_adaptive_concepts(concept_analysis)
 
-    # --------------------------------------------------------
-    # Deterministic selection order
-    # --------------------------------------------------------
-    selected = []
-
-    # 1️⃣ Always prioritize weak concepts
-    selected.extend(weak)
-
-    # 2️⃣ Fill with medium concepts
-    if len(selected) < per_quiz:
-        selected.extend(medium)
-
-    # 3️⃣ Fill remaining with strong concepts
-    if len(selected) < per_quiz:
-        selected.extend(strong)
-
-    # Cap deterministically
-    selected = selected[:per_quiz]
+    if not weak_concepts:
+        return {
+            "status": "mastery_achieved",
+            "next_level": current_level,
+            "requiz": []
+        }
 
     return {
-        "selected_concepts": selected,
-        "breakdown": {
-            "weak": weak,
-            "medium": medium,
-            "strong": strong
-        }
+        "status": "requiz_required",
+        "current_level": current_level,
+        "requiz": weak_concepts
     }

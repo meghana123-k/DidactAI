@@ -1,131 +1,122 @@
-from typing import Dict, List
-from statistics import mean
+from typing import Dict
 from datetime import datetime
 
 # ============================================================
-# CONFIGURATION
+# CONFIG
 # ============================================================
+MASTERY_THRESHOLD = 80        # % accuracy
+WEAK_THRESHOLD = 60           # % accuracy
 
-MASTERY_THRESHOLDS = {
-    "strong": 80,     # >= 80%
-    "medium": 50,     # 50–79%
-    "weak": 0         # < 50%
-}
-
-LEARNING_GAIN_THRESHOLDS = {
-    "high": 20,       # +20% improvement
-    "moderate": 10,   # +10–19%
-    "low": 0          # < +10%
-}
 
 # ============================================================
-# CORE ANALYTICS ENGINE
+# CORE ANALYTICS
 # ============================================================
-
-def analyze_quiz_performance(
-    validation_result: Dict,
-    previous_performance: Dict = None
+def compute_learning_analytics(
+    pre_attempt: Dict,
+    post_attempt: Dict
 ) -> Dict:
     """
-    Converts quiz validation output into learning analytics.
+    Computes learning gain, concept mastery, and difficulty mastery.
 
-    Inputs:
-    - validation_result → output from quiz_validator.validate_quiz_attempt
-    - previous_performance → optional historical data (same structure)
-
-    Outputs:
-    - mastery per concept
-    - difficulty readiness
-    - learning gain
-    - weak concepts for re-quiz
+    Input contracts:
+    - pre_attempt, post_attempt must come from quiz_validator output
     """
 
-    concept_analysis = validation_result.get("concept_analysis", {})
-    difficulty_analysis = validation_result.get("difficulty_analysis", {})
-    summary = validation_result.get("summary", {})
+    # -------------------- VALIDATION --------------------
+    if not pre_attempt or not post_attempt:
+        raise ValueError("Empty attempt data provided")
 
-    # --------------------------------------------------------
-    # CONCEPT MASTERY
-    # --------------------------------------------------------
-    concept_mastery = {}
-    weak_concepts = []
+    for key in ("summary", "concept_analysis", "difficulty_analysis"):
+        if key not in pre_attempt or key not in post_attempt:
+            raise ValueError(f"Missing '{key}' in attempt data")
 
-    for concept, stats in concept_analysis.items():
-        accuracy = stats.get("accuracy", 0)
+    pre_acc = pre_attempt["summary"]["accuracy"]
+    post_acc = post_attempt["summary"]["accuracy"]
 
-        label = _mastery_label(accuracy)
+    if not (0 <= pre_acc <= 100 and 0 <= post_acc <= 100):
+        raise ValueError("Accuracy must be between 0 and 100")
 
-        concept_mastery[concept] = {
-            "accuracy": accuracy,
-            "level": label
+    # -------------------- FIRST-TIME USER --------------------
+    if pre_attempt["summary"].get("total_questions", 0) == 0:
+        return {
+            "overall": {
+                "pre_accuracy": 0,
+                "post_accuracy": post_acc,
+                "learning_gain": post_acc,
+                "improved": True,
+                "first_attempt": True
+            },
+            "concept_progress": {},
+            "difficulty_progress": {},
+            "timestamp": datetime.utcnow().isoformat()
         }
 
-        if label == "weak":
-            weak_concepts.append(concept)
+    # -------------------- OVERALL --------------------
+    learning_gain = round(post_acc - pre_acc, 2)
 
-    # --------------------------------------------------------
-    # DIFFICULTY READINESS
-    # --------------------------------------------------------
-    difficulty_readiness = {}
+    # -------------------- CONCEPT PROGRESS --------------------
+    concept_progress = {}
 
-    for level, stats in difficulty_analysis.items():
-        accuracy = stats.get("accuracy", 0)
+    pre_concepts = set(pre_attempt["concept_analysis"].keys())
+    post_concepts = set(post_attempt["concept_analysis"].keys())
 
-        difficulty_readiness[level] = {
-            "accuracy": accuracy,
-            "ready": accuracy >= 60
-        }
+    for concept, post_stats in post_attempt["concept_analysis"].items():
+        post_accuracy = post_stats["accuracy"]
+        pre_accuracy = pre_attempt["concept_analysis"].get(
+            concept, {"accuracy": 0}
+        )["accuracy"]
 
-    # --------------------------------------------------------
-    # LEARNING GAIN (OPTIONAL, IF PREVIOUS DATA EXISTS)
-    # --------------------------------------------------------
-    learning_gain = None
+        delta = round(post_accuracy - pre_accuracy, 2)
 
-    if previous_performance:
-        prev_accuracy = previous_performance.get("summary", {}).get("accuracy", 0)
-        curr_accuracy = summary.get("accuracy", 0)
-
-        delta = round(curr_accuracy - prev_accuracy, 2)
-
-        learning_gain = {
-            "previous_accuracy": prev_accuracy,
-            "current_accuracy": curr_accuracy,
+        concept_progress[concept] = {
+            "pre_accuracy": pre_accuracy,
+            "post_accuracy": post_accuracy,
             "gain": delta,
-            "label": _learning_gain_label(delta)
+            "status": _concept_status(post_accuracy)
         }
 
-    # --------------------------------------------------------
-    # FINAL RESPONSE
-    # --------------------------------------------------------
+    if pre_concepts != post_concepts:
+        concept_progress["_metadata"] = {
+            "warning": "Concept mismatch detected",
+            "missing_in_post": list(pre_concepts - post_concepts),
+            "missing_in_pre": list(post_concepts - pre_concepts)
+        }
+
+    # -------------------- DIFFICULTY PROGRESS --------------------
+    difficulty_progress = {}
+
+    for level, post_stats in post_attempt["difficulty_analysis"].items():
+        post_accuracy = post_stats["accuracy"]
+        pre_accuracy = pre_attempt["difficulty_analysis"].get(
+            level, {"accuracy": 0}
+        )["accuracy"]
+
+        difficulty_progress[level] = {
+            "pre_accuracy": pre_accuracy,
+            "post_accuracy": post_accuracy,
+            "gain": round(post_accuracy - pre_accuracy, 2),
+            "mastered": post_accuracy >= MASTERY_THRESHOLD
+        }
+
     return {
-        "timestamp": datetime.utcnow().isoformat(),
-        "overall_accuracy": summary.get("accuracy", 0),
-        "passed": summary.get("passed", False),
-
-        "concept_mastery": concept_mastery,
-        "weak_concepts": weak_concepts,
-
-        "difficulty_readiness": difficulty_readiness,
-
-        "learning_gain": learning_gain
+        "overall": {
+            "pre_accuracy": pre_acc,
+            "post_accuracy": post_acc,
+            "learning_gain": learning_gain,
+            "improved": learning_gain > 0
+        },
+        "concept_progress": concept_progress,
+        "difficulty_progress": difficulty_progress,
+        "timestamp": datetime.utcnow().isoformat()
     }
 
 
 # ============================================================
 # HELPERS
 # ============================================================
-
-def _mastery_label(accuracy: float) -> str:
-    if accuracy >= MASTERY_THRESHOLDS["strong"]:
-        return "strong"
-    elif accuracy >= MASTERY_THRESHOLDS["medium"]:
-        return "medium"
+def _concept_status(accuracy: float) -> str:
+    if accuracy >= MASTERY_THRESHOLD:
+        return "mastered"
+    elif accuracy >= WEAK_THRESHOLD:
+        return "improving"
     return "weak"
-
-
-def _learning_gain_label(delta: float) -> str:
-    if delta >= LEARNING_GAIN_THRESHOLDS["high"]:
-        return "high"
-    elif delta >= LEARNING_GAIN_THRESHOLDS["moderate"]:
-        return "moderate"
-    return "low"
