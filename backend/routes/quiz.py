@@ -76,88 +76,81 @@ def generate_quiz():
 @quiz_bp.route("/submit", methods=["POST"])
 def submit_quiz():
     """
-    Input JSON:
-    {
-        "quiz_id": "...",
-        "user_id": "...",
-        "answers": {...},
-        "metadata": {...}   # optional timing / behavior
-    }
+    Orchestrates quiz submission:
+    - validation
+    - analytics
+    - persistence
+    - certificate update
     """
 
-    data = request.get_json(force=True)
+    payload = request.get_json()
 
-    quiz_id = data.get("quiz_id")
-    user_id = data.get("user_id")
-    user_answers = data.get("answers")
-    attempt_metadata = data.get("metadata", {})
+    # -------------------------------
+    # 1. BASIC VALIDATION
+    # -------------------------------
+    required_keys = {"user_id", "quiz", "user_answers"}
+    if not payload or not required_keys.issubset(payload):
+        return jsonify({"error": "Invalid submission payload"}), 400
 
-    if not quiz_id or not user_id or not user_answers:
-        return jsonify({
-            "error": "quiz_id, user_id, and answers are required"
-        }), 400
+    user_id = payload["user_id"]
+    quiz = payload["quiz"]
+    user_answers = payload["user_answers"]
+    mode = payload.get("mode", "post")
 
-    db: Session = SessionLocal()
+    # -------------------------------
+    # 2. FETCH PREVIOUS ATTEMPT (if any)
+    # -------------------------------
+    pre_attempt = get_last_attempt(user_id)
 
-    try:
-        quiz = db.query(Quiz).filter_by(id=quiz_id).first()
-        if not quiz:
-            return jsonify({"error": "Quiz not found"}), 404
+    if not pre_attempt:
+        # First-time user baseline
+        pre_attempt = {
+            "summary": {"accuracy": 0},
+            "concept_analysis": {},
+            "difficulty_analysis": {}
+        }
 
-        # Determine attempt number
-        attempt_number = (
-            db.query(QuizAttempt)
-            .filter_by(quiz_id=quiz_id, user_id=user_id)
-            .count()
-            + 1
-        )
+    # -------------------------------
+    # 3. VALIDATE QUIZ ATTEMPT
+    # -------------------------------
+    evaluation = validate_quiz_attempt(
+        quiz=quiz,
+        user_answers=user_answers,
+        mode=mode
+    )
 
-        # Validate quiz
-        evaluation = validate_quiz_attempt(
-            quiz=quiz.quiz_payload,
-            user_answers=user_answers,
-            attempt_metadata=attempt_metadata,
-            mode="post"
-        )
+    # -------------------------------
+    # 4. COMPUTE ANALYTICS
+    # -------------------------------
+    analytics = compute_learning_analytics(
+        pre_attempt=pre_attempt,
+        post_attempt=evaluation
+    )
 
-        # Persist attempt
-        attempt = QuizAttempt(
-            quiz_id=quiz.id,
-            user_id=user_id,
-            attempt_number=attempt_number,
-            mode=quiz.mode,
-            total_score=evaluation["summary"]["total_score"],
-            max_score=evaluation["summary"]["max_score"],
-            accuracy=evaluation["summary"]["accuracy"],
-            passed=evaluation["summary"]["passed"],
-            analytics_snapshot=evaluation,
-            difficulty_progress=evaluation.get("difficulty_analysis"),
-            concept_progress=evaluation.get("concept_analysis"),
-        )
+    # -------------------------------
+    # 5. PERSIST ATTEMPT
+    # -------------------------------
+    save_quiz_attempt(
+        user_id=user_id,
+        attempt_payload={
+            "evaluation": evaluation,
+            "analytics": analytics
+        }
+    )
 
-        db.add(attempt)
-        db.commit()
-        db.refresh(attempt)
+    # -------------------------------
+    # 6. CERTIFICATE LOGIC (HIGHEST SCORE)
+    # -------------------------------
+    certificate_status = create_or_update_certificate(
+        user_id=user_id,
+        accuracy=evaluation["summary"]["accuracy"]
+    )
 
-        # Persist per-question responses
-        for q in evaluation.get("detailed_results", []):
-            db.add(QuestionResponse(
-                attempt_id=attempt.id,
-                question_id=q["question_id"],
-                concept=q.get("concept"),
-                difficulty=q.get("difficulty"),
-                selected_option=q.get("selected"),
-                correct_option=q.get("correct_answer"),
-                is_correct=q.get("is_correct"),
-                time_taken=q.get("time_taken"),
-            ))
-
-        db.commit()
-
-        return jsonify({
-            "attempt_id": str(attempt.id),
-            "evaluation": evaluation
-        }), 200
-
-    finally:
-        db.close()
+    # -------------------------------
+    # 7. RESPONSE
+    # -------------------------------
+    return jsonify({
+        "evaluation": evaluation,
+        "analytics": analytics,
+        "certificate": certificate_status
+    }), 200

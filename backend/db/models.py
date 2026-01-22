@@ -1,5 +1,5 @@
 import uuid
-
+from sqlalchemy import Column, String, Numeric, TIMESTAMP, UniqueConstraint, JSON
 from sqlalchemy import (
     Column,
     String,
@@ -42,22 +42,22 @@ class QuizAttempt(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    quiz_id = Column(UUID(as_uuid=True), ForeignKey("quizzes.id"), nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    student_id = Column(String(100), nullable=False)
+    topic = Column(String(200), nullable=False)
 
-    attempt_number = Column(Integer, nullable=False)
-    mode = Column(String, nullable=False)
+    mode = Column(String(20), nullable=False)  # pre / post
 
-    total_score = Column(Integer)
-    max_score = Column(Integer)
-    accuracy = Column(Float)
-    passed = Column(Boolean)
+    accuracy = Column(Numeric(5, 2), nullable=False)
+    total_score = Column(Integer, nullable=False)
+    max_score = Column(Integer, nullable=False)
 
-    analytics_snapshot = Column(JSONB)
-    difficulty_progress = Column(JSONB)
-    concept_progress = Column(JSONB)
+    difficulty_analysis = Column(JSON, nullable=False)
+    concept_analysis = Column(JSON, nullable=False)
 
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    attempt_metadata = Column(JSON)
+    integrity_score = Column(Numeric(5, 2))
+
+    created_at = Column(TIMESTAMP, server_default=func.now())
 
 
 class QuestionResponse(Base):
@@ -82,3 +82,22 @@ class QuestionResponse(Base):
     time_taken = Column(Float)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+
+class Certificate(Base):
+    __tablename__ = "certificates"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    student_id = Column(String(100), nullable=False)
+    topic = Column(String(200), nullable=False)
+
+    best_accuracy = Column(Numeric(5, 2), nullable=False)
+    issued_at = Column(TIMESTAMP, server_default=func.now())
+
+    certificate_data = Column(JSON, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("student_id", "topic", name="uq_student_topic"),
+    )

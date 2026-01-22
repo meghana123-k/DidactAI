@@ -1,15 +1,30 @@
+# Core backend
 flask
 flask-cors
-transformers
-torch
+python-dotenv
+requests
+
+# LLM + APIs
+openai
+google-api-python-client
+mistralai
+
+# NLP / ML
 nltk
 spacy
 scikit-learn
-pandas
+transformers
+torch
+
+# Data
 numpy
+pandas
+
+# Persistence
+sqlalchemy
+psycopg2-binary
+
+# Documents / certificates
 PyPDF2
 python-docx
-openai
-google-api-python-client
-python-dotenv
-requests
+reportlab

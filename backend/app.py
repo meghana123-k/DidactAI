@@ -3,7 +3,9 @@ from routes.summarize import summarize_bp
 from routes.quiz import quiz_bp
 from routes.analytics import analytics_bp
 from routes.certificate import certificate_bp
-
+from db.database import engine, Base
+from db import models
+Base.metadata.create_all(bind=engine)
 
 def create_app():
     print("CREATING FLASK APP")
