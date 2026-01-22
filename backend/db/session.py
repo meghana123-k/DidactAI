@@ -1,10 +1,8 @@
 import os
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, scoped_session
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-# example:
-# postgresql+psycopg2://user:password@localhost:5432/didactai
 
 engine = create_engine(
     DATABASE_URL,
@@ -12,8 +10,10 @@ engine = create_engine(
     echo=False
 )
 
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine
+SessionLocal = scoped_session(
+    sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=engine
+    )
 )

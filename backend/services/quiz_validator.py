@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict
 from datetime import datetime
 
 
@@ -14,10 +14,13 @@ def validate_quiz_attempt(
 
     attempt_metadata = attempt_metadata or {}
 
+    # ✅ Normalize quiz structure
+    quiz_data = quiz["quiz"] if "quiz" in quiz else quiz
+
     results = []
     concept_events = []
 
-    for level, questions in quiz["quiz"].items():
+    for level, questions in quiz_data.items():
         for idx, q in enumerate(questions):
             question_id = f"{level}_{idx}"
             selected = user_answers.get(question_id)

@@ -28,7 +28,10 @@ def create_app():
     # --------------------------------------------------
     @app.teardown_appcontext
     def shutdown_session(exception=None):
-        SessionLocal.remove()
+        try:
+            SessionLocal.remove()
+        except AttributeError:
+            pass
 
     # --------------------------------------------------
     # Register Blueprints

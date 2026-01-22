@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from sqlalchemy.orm import Session
 
 from db.session import SessionLocal
-from db.models import Quiz, QuizAttempt, QuestionResponse
+from db.models import Quiz, QuizAttempt
 
 from services.quiz_generator import generate_quiz_from_summary
 from services.quiz_validator import validate_quiz_attempt
@@ -19,7 +19,7 @@ def generate_quiz():
     """
     Accepts:
     - text (optional)
-    - file (optional: pdf / docx / txt)
+    - file (optional)
     - mode (basic | detailed | conceptual)
     - user_id (required)
     """
@@ -65,120 +65,83 @@ def generate_quiz():
             "quiz_id": str(quiz.id),
             "quiz": quiz_payload
         }), 200
-
     finally:
         db.close()
 
 
 # ============================================================
-# 2️⃣ SUBMIT QUIZ ATTEMPT (VALIDATE + ANALYTICS + PERSIST)
+# 2️⃣ PURE VALIDATION ENDPOINT (FOR TESTING)
+# ============================================================
+@quiz_bp.route("/validate", methods=["POST"])
+def validate_only():
+    """
+    PURE validator endpoint.
+    No DB. No scoring. Used for your 5 test cases.
+    """
+
+    data = request.get_json()
+
+    if "quiz" not in data or "user_answers" not in data:
+        return jsonify({"error": "quiz and user_answers are required"}), 400
+
+    result = validate_quiz_attempt(
+        quiz=data["quiz"],
+        user_answers=data["user_answers"],
+        attempt_metadata=data.get("attempt_metadata")
+    )
+
+    return jsonify(result), 200
+
+
+# ============================================================
+# 3️⃣ SUBMIT QUIZ ATTEMPT (RAW VALIDATION + PERSIST)
 # ============================================================
 @quiz_bp.route("/submit", methods=["POST"])
 def submit_quiz():
     payload = request.get_json()
 
-    # -----------------------------
-    # 1. Basic validation
-    # -----------------------------
     required_fields = [
-        "student_id", "topic",
-        "assessment_phase", "summary_mode",
-        "quiz", "user_answers"
+        "student_id",
+        "topic",
+        "assessment_phase",
+        "summary_mode",
+        "quiz",
+        "user_answers"
     ]
 
     for field in required_fields:
         if field not in payload:
             return jsonify({"error": f"Missing field: {field}"}), 400
 
-    student_id = payload["student_id"]
-    topic = payload["topic"]
-    assessment_phase = payload["assessment_phase"]
-    summary_mode = payload["summary_mode"]
-    quiz = payload["quiz"]
-    user_answers = payload["user_answers"]
-    attempt_metadata = payload.get("attempt_metadata", {})
-
-    if assessment_phase not in ("pre", "post"):
+    if payload["assessment_phase"] not in ("pre", "post"):
         return jsonify({"error": "assessment_phase must be pre or post"}), 400
 
-    # -----------------------------
-    # 2. Validate quiz attempt
-    # -----------------------------
     attempt_result = validate_quiz_attempt(
-        quiz=quiz,
-        user_answers=user_answers,
-        attempt_metadata=attempt_metadata,
-        mode=assessment_phase
+        quiz=payload["quiz"],
+        user_answers=payload["user_answers"],
+        attempt_metadata=payload.get("attempt_metadata")
     )
 
-    # -----------------------------
-    # 3. Persist quiz attempt
-    # -----------------------------
-    db: Session = get_db_session()
+    db: Session = SessionLocal()
+    try:
+        attempt = QuizAttempt(
+            student_id=payload["student_id"],
+            topic=payload["topic"],
+            assessment_phase=payload["assessment_phase"],
+            summary_mode=payload["summary_mode"],
 
-    attempt = QuizAttempt(
-        student_id=student_id,
-        topic=topic,
-        assessment_phase=assessment_phase,
-        summary_mode=summary_mode,
+            raw_results=attempt_result["results"],
+            concept_events=attempt_result["concept_events"],
 
-        accuracy=attempt_result["summary"]["accuracy"],
-        total_score=attempt_result["summary"]["total_score"],
-        max_score=attempt_result["summary"]["max_score"],
-
-        difficulty_analysis=attempt_result["difficulty_analysis"],
-        concept_analysis=attempt_result["concept_analysis"],
-
-        attempt_metadata=attempt_metadata
-    )
-
-    db.add(attempt)
-    db.commit()
-
-    # -----------------------------
-    # 4. Analytics (only if post)
-    # -----------------------------
-    analytics = None
-    certificate = None
-
-    if assessment_phase == "post":
-        # fetch latest pre attempt if exists
-        pre_attempt = (
-            db.query(QuizAttempt)
-            .filter_by(
-                student_id=student_id,
-                topic=topic,
-                assessment_phase="pre"
-            )
-            .order_by(QuizAttempt.created_at.desc())
-            .first()
+            attempt_metadata=payload.get("attempt_metadata", {})
         )
 
-        analytics = compute_learning_analytics(
-            pre_attempt=pre_attempt.__dict__ if pre_attempt else {
-                "summary": {"accuracy": 0},
-                "concept_analysis": {},
-                "difficulty_analysis": {}
-            },
-            post_attempt=attempt_result
-        )
+        db.add(attempt)
+        db.commit()
 
-        # -----------------------------
-        # 5. Certificate logic
-        # -----------------------------
-        certificate = create_or_update_certificate(
-            db=db,
-            student_id=student_id,
-            topic=topic,
-            accuracy=attempt_result["summary"]["accuracy"],
-            analytics=analytics
-        )
+        return jsonify({
+            "attempt_result": attempt_result
+        }), 200
 
-    # -----------------------------
-    # 6. Response
-    # -----------------------------
-    return jsonify({
-        "attempt_result": attempt_result,
-        "analytics": analytics,
-        "certificate": certificate
-    }), 200
+    finally:
+        db.close()
