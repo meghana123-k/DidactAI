@@ -1,66 +1,118 @@
-from dataclasses import dataclass
+from typing import Dict, Optional
 from datetime import datetime
-from uuid import uuid4
-from typing import Dict
+import uuid
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+CERTIFICATE_THRESHOLD = 80  # % accuracy required to certify
 
 
-@dataclass
-class Certificate:
-    certificate_id: str
-    student_name: str
-    topic: str
-    final_score: float
-    integrity_score: float
-    issued_on: str
-    status: str
-    remarks: str
-
-
-class CertificateGenerator:
+# ============================================================
+# CORE CERTIFICATE LOGIC
+# ============================================================
+def generate_or_update_certificate(
+    student_id: str,
+    topic: str,
+    analytics: Dict,
+    previous_certificate: Optional[Dict] = None
+) -> Dict:
     """
-    Generates digital certificates based on assessment performance.
+    Highest-score certificate policy.
+
+    Rules:
+    - Certificate issued only if accuracy >= CERTIFICATE_THRESHOLD
+    - Certificate updated ONLY if current accuracy > previous best
+    - Minor improvements below threshold are ignored
     """
 
-    MIN_FINAL_SCORE = 0.7
-    MIN_INTEGRITY_SCORE = 0.8
+    # ------------------------
+    # Input validation
+    # ------------------------
+    if "summary" not in analytics:
+        raise ValueError("Invalid analytics object: missing summary")
 
-    def is_eligible(
-        self,
-        analytics: Dict
-    ) -> (bool, str):
-        """
-        Check eligibility for certificate issuance.
-        """
-        if analytics["final_score"] < self.MIN_FINAL_SCORE:
-            return False, "Final score below threshold"
+    current_accuracy = analytics["summary"].get("accuracy")
 
-        if analytics["integrity_score"] < self.MIN_INTEGRITY_SCORE:
-            return False, "Integrity score below threshold"
+    if current_accuracy is None:
+        raise ValueError("Analytics summary missing accuracy")
 
-        breakdown = analytics.get("breakdown", {})
-        for level in ["beginner", "intermediate", "advanced"]:
-            if breakdown.get(level, {}).get("count", 0) == 0:
-                return False, f"No questions attempted at {level} level"
+    if current_accuracy < CERTIFICATE_THRESHOLD:
+        return {
+            "eligible": False,
+            "reason": "Accuracy below certification threshold",
+            "current_accuracy": current_accuracy,
+        }
 
-        return True, "Eligible"
-
-    def generate_certificate(
-        self,
-        student_name: str,
-        topic: str,
-        analytics: Dict
-    ) -> Certificate:
-        eligible, reason = self.is_eligible(analytics)
-
-        status = "Issued" if eligible else "Rejected"
-
-        return Certificate(
-            certificate_id=str(uuid4()),
-            student_name=student_name,
+    # ------------------------
+    # First-time certificate
+    # ------------------------
+    if previous_certificate is None:
+        return _create_certificate(
+            student_id=student_id,
             topic=topic,
-            final_score=analytics["final_score"],
-            integrity_score=analytics["integrity_score"],
-            issued_on=datetime.utcnow().strftime("%Y-%m-%d"),
-            status=status,
-            remarks=reason
+            accuracy=current_accuracy,
+            analytics=analytics,
+            is_update=False
         )
+
+    # ------------------------
+    # Compare with best score
+    # ------------------------
+    previous_best = previous_certificate.get("accuracy", 0)
+
+    if current_accuracy <= previous_best:
+        return {
+            "eligible": False,
+            "reason": "No improvement over existing certificate",
+            "current_accuracy": current_accuracy,
+            "best_accuracy": previous_best,
+            "certificate_id": previous_certificate.get("certificate_id")
+        }
+
+    # ------------------------
+    # Update certificate (higher mastery achieved)
+    # ------------------------
+    return _create_certificate(
+        student_id=student_id,
+        topic=topic,
+        accuracy=current_accuracy,
+        analytics=analytics,
+        is_update=True,
+        previous_certificate_id=previous_certificate.get("certificate_id")
+    )
+
+
+# ============================================================
+# INTERNAL HELPERS
+# ============================================================
+def _create_certificate(
+    student_id: str,
+    topic: str,
+    accuracy: float,
+    analytics: Dict,
+    is_update: bool,
+    previous_certificate_id: Optional[str] = None
+) -> Dict:
+    """
+    Creates a certificate metadata object.
+    """
+
+    certificate_id = str(uuid.uuid4())
+
+    return {
+        "eligible": True,
+        "certificate": {
+            "certificate_id": certificate_id,
+            "student_id": student_id,
+            "topic": topic,
+            "accuracy": accuracy,
+            "issued_at": datetime.utcnow().isoformat(),
+            "is_update": is_update,
+            "previous_certificate_id": previous_certificate_id,
+            "mastery_snapshot": {
+                "difficulty_progress": analytics.get("difficulty_progress", {}),
+                "concept_progress": analytics.get("concept_progress", {}),
+            }
+        }
+    }
