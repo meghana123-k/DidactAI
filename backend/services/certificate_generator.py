@@ -1,118 +1,89 @@
 from typing import Dict, Optional
 from datetime import datetime
-import uuid
 
 # ============================================================
-# CONFIGURATION
+# CONFIG
 # ============================================================
-CERTIFICATE_THRESHOLD = 80  # % accuracy required to certify
+CERTIFICATE_PASS_THRESHOLD = 80  # % accuracy
 
 
 # ============================================================
 # CORE CERTIFICATE LOGIC
 # ============================================================
-def generate_or_update_certificate(
-    student_id: str,
-    topic: str,
+def create_or_update_certificate(
+    user_id: str,
     analytics: Dict,
-    previous_certificate: Optional[Dict] = None
+    existing_certificate: Optional[Dict] = None
 ) -> Dict:
     """
-    Highest-score certificate policy.
+    Highest-score-only certificate policy.
 
-    Rules:
-    - Certificate issued only if accuracy >= CERTIFICATE_THRESHOLD
-    - Certificate updated ONLY if current accuracy > previous best
-    - Minor improvements below threshold are ignored
+    Parameters:
+    - user_id: unique learner identifier
+    - analytics: output from analytics_engine.py
+    - existing_certificate: previously issued certificate (if any)
+
+    Returns:
+    - certificate payload (issued or unchanged)
     """
 
-    # ------------------------
-    # Input validation
-    # ------------------------
-    if "summary" not in analytics:
-        raise ValueError("Invalid analytics object: missing summary")
+    overall = analytics.get("overall", {})
+    accuracy = overall.get("post_accuracy", 0)
 
-    current_accuracy = analytics["summary"].get("accuracy")
-
-    if current_accuracy is None:
-        raise ValueError("Analytics summary missing accuracy")
-
-    if current_accuracy < CERTIFICATE_THRESHOLD:
+    # --------------------------------------------------------
+    # Eligibility check
+    # --------------------------------------------------------
+    if accuracy < CERTIFICATE_PASS_THRESHOLD:
         return {
-            "eligible": False,
-            "reason": "Accuracy below certification threshold",
-            "current_accuracy": current_accuracy,
+            "issued": False,
+            "reason": "Score below certification threshold",
+            "best_score": existing_certificate.get("score") if existing_certificate else None
         }
 
-    # ------------------------
+    # --------------------------------------------------------
     # First-time certificate
-    # ------------------------
-    if previous_certificate is None:
-        return _create_certificate(
-            student_id=student_id,
-            topic=topic,
-            accuracy=current_accuracy,
-            analytics=analytics,
-            is_update=False
-        )
+    # --------------------------------------------------------
+    if existing_certificate is None:
+        return _issue_new_certificate(user_id, accuracy)
 
-    # ------------------------
-    # Compare with best score
-    # ------------------------
-    previous_best = previous_certificate.get("accuracy", 0)
+    # --------------------------------------------------------
+    # Highest-score-only update
+    # --------------------------------------------------------
+    previous_best = existing_certificate.get("score", 0)
 
-    if current_accuracy <= previous_best:
-        return {
-            "eligible": False,
-            "reason": "No improvement over existing certificate",
-            "current_accuracy": current_accuracy,
-            "best_accuracy": previous_best,
-            "certificate_id": previous_certificate.get("certificate_id")
-        }
+    if accuracy > previous_best:
+        return _update_certificate(existing_certificate, accuracy)
 
-    # ------------------------
-    # Update certificate (higher mastery achieved)
-    # ------------------------
-    return _create_certificate(
-        student_id=student_id,
-        topic=topic,
-        accuracy=current_accuracy,
-        analytics=analytics,
-        is_update=True,
-        previous_certificate_id=previous_certificate.get("certificate_id")
-    )
-
-
-# ============================================================
-# INTERNAL HELPERS
-# ============================================================
-def _create_certificate(
-    student_id: str,
-    topic: str,
-    accuracy: float,
-    analytics: Dict,
-    is_update: bool,
-    previous_certificate_id: Optional[str] = None
-) -> Dict:
-    """
-    Creates a certificate metadata object.
-    """
-
-    certificate_id = str(uuid.uuid4())
-
+    # --------------------------------------------------------
+    # No update needed
+    # --------------------------------------------------------
     return {
-        "eligible": True,
-        "certificate": {
-            "certificate_id": certificate_id,
-            "student_id": student_id,
-            "topic": topic,
-            "accuracy": accuracy,
-            "issued_at": datetime.utcnow().isoformat(),
-            "is_update": is_update,
-            "previous_certificate_id": previous_certificate_id,
-            "mastery_snapshot": {
-                "difficulty_progress": analytics.get("difficulty_progress", {}),
-                "concept_progress": analytics.get("concept_progress", {}),
-            }
-        }
+        "issued": False,
+        "reason": "Existing certificate has higher or equal score",
+        "best_score": previous_best
+    }
+
+
+# ============================================================
+# HELPERS
+# ============================================================
+def _issue_new_certificate(user_id: str, score: float) -> Dict:
+    return {
+        "issued": True,
+        "user_id": user_id,
+        "score": score,
+        "issued_at": datetime.utcnow().isoformat(),
+        "certificate_version": 1,
+        "status": "active"
+    }
+
+
+def _update_certificate(existing_certificate: Dict, new_score: float) -> Dict:
+    return {
+        **existing_certificate,
+        "issued": True,
+        "score": new_score,
+        "updated_at": datetime.utcnow().isoformat(),
+        "certificate_version": existing_certificate.get("certificate_version", 1) + 1,
+        "status": "updated"
     }
