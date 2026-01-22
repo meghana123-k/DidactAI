@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from services.certificate_generator import generate_or_update_certificate
+from services.certificate_generator import create_or_update_certificate
 
 certificate_bp = Blueprint("certificate", __name__)
 
@@ -14,11 +14,16 @@ def issue_certificate():
         "student_id": "string",
         "topic": "string",
         "analytics": {...},                # output of analytics_engine
-        "previous_certificate": {...}      # optional
+        "existing_certificate": {...}      # optional
     }
     """
 
-    data = request.get_json()
+    data = request.get_json(silent=True)
+
+    if not data:
+        return jsonify({
+            "error": "Invalid or missing JSON payload"
+        }), 400
 
     # ----------------------------
     # Basic validation
@@ -26,7 +31,7 @@ def issue_certificate():
     student_id = data.get("student_id")
     topic = data.get("topic")
     analytics = data.get("analytics")
-    previous_certificate = data.get("previous_certificate")
+    existing_certificate = data.get("existing_certificate")
 
     if not student_id or not topic or not analytics:
         return jsonify({
@@ -34,11 +39,11 @@ def issue_certificate():
         }), 400
 
     try:
-        result = generate_or_update_certificate(
+        result = create_or_update_certificate(
             student_id=student_id,
             topic=topic,
             analytics=analytics,
-            previous_certificate=previous_certificate
+            existing_certificate=existing_certificate
         )
 
         return jsonify(result), 200
@@ -49,7 +54,6 @@ def issue_certificate():
         }), 400
 
     except Exception as e:
-        # Fail-safe for unexpected issues
         return jsonify({
             "error": "Certificate generation failed",
             "details": str(e)

@@ -1,7 +1,7 @@
 import uuid
 from sqlalchemy import (
     Column, String, Integer, Numeric,
-    JSON, TIMESTAMP, CheckConstraint
+    JSON, TIMESTAMP, CheckConstraint, Index
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
@@ -14,13 +14,14 @@ class QuizAttempt(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    student_id = Column(String(100), nullable=False)
-    topic = Column(String(200), nullable=False)
+    student_id = Column(String(100), nullable=False, index=True)
+    topic = Column(String(200), nullable=False, index=True)
 
     assessment_phase = Column(
         String(10),
         CheckConstraint("assessment_phase IN ('pre', 'post')"),
-        nullable=False
+        nullable=False,
+        index=True
     )
 
     summary_mode = Column(
@@ -41,5 +42,17 @@ class QuizAttempt(Base):
 
     created_at = Column(
         TIMESTAMP(timezone=True),
-        server_default=func.now()
+        server_default=func.now(),
+        index=True
+    )
+
+    __table_args__ = (
+        # Common query accelerator:
+        Index(
+            "idx_student_topic_phase_time",
+            "student_id",
+            "topic",
+            "assessment_phase",
+            "created_at"
+        ),
     )
