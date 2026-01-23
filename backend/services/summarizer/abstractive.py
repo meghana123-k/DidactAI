@@ -3,7 +3,7 @@ from typing import Optional, Dict
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from services.llm.ollama_client import ollama_generate
+from backend.services.llm.ollama_client import ollama_generate
 
 load_dotenv()
 

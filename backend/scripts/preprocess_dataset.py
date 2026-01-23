@@ -1,14 +1,23 @@
 import os
 import json
 from datetime import datetime
+import sys
+from backend.services.summarizer.abstractive import explain
+from backend.services.summarizer.conceptual import get_conceptual_summary
+from backend.utils.text_preprocessing import extract_text_from_input
+from utils.doc_fingerprint import generate_doc_id
 
-from utils.text_preprocessing import extract_text_from_input
-from services.summarizer.abstractive import explain
-from services.summarizer.conceptual import get_conceptual_summary
 
-RAW_DIR = "backend/data/raw"
-PROCESSED_DIR = "backend/data/processed"
-INDEX_FILE = "backend/data/index.json"
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, PROJECT_ROOT)
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+
+RAW_DIR = os.path.join(DATA_DIR, "raw")
+PROCESSED_DIR = os.path.join(DATA_DIR, "processed")
+INDEX_FILE = os.path.join(DATA_DIR, "index.json")
+
 
 os.makedirs(PROCESSED_DIR, exist_ok=True)
 
@@ -26,7 +35,7 @@ def save_index(index):
 
 
 def preprocess_file(filename, index):
-    doc_id = os.path.splitext(filename)[0]
+    doc_id = generate_doc_id(text)
     raw_path = os.path.join(RAW_DIR, filename)
     processed_path = os.path.join(PROCESSED_DIR, f"{doc_id}.json")
 

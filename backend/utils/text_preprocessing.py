@@ -18,7 +18,12 @@ def extract_text_from_input(text: Optional[str] = None, file=None) -> str:
     if file is None:
         raise ValueError("No text or file provided")
 
-    filename = file.filename.lower()
+    filename = (
+    file.filename.lower()
+    if hasattr(file, "filename")
+    else os.path.basename(file.name).lower()
+)
+
 
     if filename.endswith(".pdf"):
         return _extract_from_pdf(file)
