@@ -1,20 +1,20 @@
 import os
 from typing import Optional, Dict
-from openai import OpenAI
 from dotenv import load_dotenv
+from openai import OpenAI
+
+from services.llm.ollama_client import ollama_generate
 
 load_dotenv()
 
-"""
-LLM POLICY — SUMMARIZER
-
-Primary    : GPT
-Fallback   : Gemini
-Last-resort: Deterministic extract (low confidence)
-
-Reason:
-Summarization prioritizes linguistic clarity and controlled abstraction.
-"""
+# ============================================================
+# LLM POLICY — SUMMARIZER
+#
+# 1️⃣ Ollama  (local / offline / dev)
+# 2️⃣ GPT     (cloud primary)
+# 3️⃣ Gemini  (cloud fallback)
+# 4️⃣ Extract (deterministic fallback)
+# ============================================================
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -31,6 +31,11 @@ if GEMINI_API_KEY:
     except Exception:
         gemini_client = None
 
+
+# ============================================================
+# PROMPTS
+# ============================================================
+
 PROMPTS = {
     "basic": "Explain like teaching a child. Use simple words and examples.",
     "detailed": (
@@ -43,6 +48,74 @@ PROMPTS = {
     ),
 }
 
+
+def _format_prompt(text: str, mode: str) -> str:
+    return f"""
+{PROMPTS[mode]}
+
+CONTENT:
+{text}
+
+RULES:
+- Stay concise
+- Do not hallucinate
+- Follow the instruction strictly
+"""
+
+
+# ============================================================
+# EXPLAIN (SINGLE SOURCE OF TRUTH)
+# ============================================================
+
+def explain(text: str, mode: str) -> Dict:
+    if not text or not text.strip():
+        return {"text": "", "source": "none", "confidence": "low"}
+
+    prompt = _format_prompt(text, mode)
+
+    # 1️⃣ OLLAMA — LOCAL FIRST
+    ollama_output = ollama_generate(prompt)
+    if ollama_output:
+        return {
+            "text": ollama_output,
+            "source": "ollama",
+            "confidence": "medium"
+        }
+
+    # 2️⃣ GPT — CLOUD PRIMARY
+    if openai_client:
+        try:
+            return {
+                "text": _explain_openai(text, mode),
+                "source": "gpt",
+                "confidence": "high"
+            }
+        except Exception as e:
+            print("GPT failed:", e)
+
+    # 3️⃣ GEMINI — CLOUD FALLBACK
+    if gemini_client:
+        try:
+            return {
+                "text": _explain_gemini(text, mode),
+                "source": "gemini",
+                "confidence": "medium"
+            }
+        except Exception as e:
+            print("Gemini failed:", e)
+
+    # 4️⃣ FINAL DETERMINISTIC FALLBACK
+    sentences = text.split(".")
+    return {
+        "text": ". ".join(sentences[:3]).strip() + "...",
+        "source": "fallback",
+        "confidence": "low"
+    }
+
+
+# ============================================================
+# PROVIDER-SPECIFIC HELPERS
+# ============================================================
 
 def _explain_openai(text: str, mode: str) -> str:
     response = openai_client.chat.completions.create(
@@ -64,38 +137,3 @@ def _explain_gemini(text: str, mode: str) -> str:
         contents=prompt
     )
     return response.text.strip()
-
-
-def explain(text: str, mode: str) -> Dict:
-    if not text or not text.strip():
-        return {"text": "", "source": "none", "confidence": "low"}
-
-    # GPT — Primary
-    if openai_client:
-        try:
-            return {
-                "text": _explain_openai(text, mode),
-                "source": "gpt",
-                "confidence": "high"
-            }
-        except Exception as e:
-            print("GPT failed:", e)
-
-    # Gemini — Fallback
-    if gemini_client:
-        try:
-            return {
-                "text": _explain_gemini(text, mode),
-                "source": "gemini",
-                "confidence": "medium"
-            }
-        except Exception as e:
-            print("Gemini failed:", e)
-
-    # Deterministic fallback (explicitly low confidence)
-    sentences = text.split(".")
-    return {
-        "text": ". ".join(sentences[:3]).strip() + "...",
-        "source": "fallback",
-        "confidence": "low"
-    }
