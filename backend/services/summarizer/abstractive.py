@@ -71,29 +71,7 @@ def explain(text: str, mode: str) -> Dict:
     if not text or not text.strip():
         return {"text": "", "source": "none", "confidence": "low"}
 
-    prompt = _format_prompt(text, mode)
-
-    # 1️⃣ OLLAMA — LOCAL FIRST
-    ollama_output = ollama_generate(prompt)
-    if ollama_output:
-        return {
-            "text": ollama_output,
-            "source": "ollama",
-            "confidence": "medium"
-        }
-
-    # 2️⃣ GPT — CLOUD PRIMARY
-    if openai_client:
-        try:
-            return {
-                "text": _explain_openai(text, mode),
-                "source": "gpt",
-                "confidence": "high"
-            }
-        except Exception as e:
-            print("GPT failed:", e)
-
-    # 3️⃣ GEMINI — CLOUD FALLBACK
+    # 1️⃣ GEMINI — PRIMARY
     if gemini_client:
         try:
             return {
@@ -104,7 +82,18 @@ def explain(text: str, mode: str) -> Dict:
         except Exception as e:
             print("Gemini failed:", e)
 
-    # 4️⃣ FINAL DETERMINISTIC FALLBACK
+    # 2️⃣ OPENAI — SECONDARY
+    if openai_client:
+        try:
+            return {
+                "text": _explain_openai(text, mode),
+                "source": "gpt",
+                "confidence": "high"
+            }
+        except Exception as e:
+            print("GPT failed:", e)
+
+    # 3️⃣ FINAL DETERMINISTIC FALLBACK
     sentences = text.split(".")
     return {
         "text": ". ".join(sentences[:3]).strip() + "...",

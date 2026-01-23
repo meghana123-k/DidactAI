@@ -83,18 +83,7 @@ def get_conceptual_summary(text: str) -> Dict:
     if not text or not text.strip():
         return {"key_concepts": [], "source": "none", "confidence": "low"}
 
-    if OPENAI_API_KEY:
-        try:
-            concepts = _get_concepts_openai(text)
-            if concepts:
-                return {
-                    "key_concepts": concepts,
-                    "source": "openai",
-                    "confidence": "high"
-                }
-        except Exception as e:
-            print("OpenAI concept extraction failed:", e)
-
+    # 1️⃣ GEMINI — PRIMARY
     if GEMINI_API_KEY:
         try:
             concepts = _get_concepts_gemini(text)
@@ -107,6 +96,20 @@ def get_conceptual_summary(text: str) -> Dict:
         except Exception as e:
             print("Gemini concept extraction failed:", e)
 
+    # 2️⃣ OPENAI — SECONDARY
+    if OPENAI_API_KEY:
+        try:
+            concepts = _get_concepts_openai(text)
+            if concepts:
+                return {
+                    "key_concepts": concepts,
+                    "source": "openai",
+                    "confidence": "high"
+                }
+        except Exception as e:
+            print("OpenAI concept extraction failed:", e)
+
+    # 3️⃣ SPACY — FINAL FALLBACK
     try:
         concepts = _get_concepts_spacy(text)
         return {

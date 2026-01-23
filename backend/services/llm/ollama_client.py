@@ -2,9 +2,9 @@ import requests
 import json
 import os
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
-TIMEOUT = 60
+OLLAMA_URL = os.getenv("OLLAMA_URL")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL")
+TIMEOUT = 120
 
 
 def ollama_generate(prompt: str) -> str:
