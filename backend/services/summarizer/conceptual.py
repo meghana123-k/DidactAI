@@ -80,40 +80,41 @@ def _get_concepts_spacy(text: str) -> List[str]:
 
     return list(concepts)
 def get_conceptual_summary(text: str) -> Dict:
-    """
-    Returns:
-    {
-        "key_concepts": [...],
-        "source": "openai | gemini | spacy"
-    }
-    """
-
     if not text or not text.strip():
-        return {"key_concepts": [], "source": "none"}
+        return {"key_concepts": [], "source": "none", "confidence": "low"}
 
-    # 1️⃣ Try OpenAI
     if OPENAI_API_KEY:
         try:
             concepts = _get_concepts_openai(text)
             if concepts:
-                return {"key_concepts": concepts, "source": "openai"}
+                return {
+                    "key_concepts": concepts,
+                    "source": "openai",
+                    "confidence": "high"
+                }
         except Exception as e:
             print("OpenAI concept extraction failed:", e)
 
-    # 2️⃣ Try Gemini
     if GEMINI_API_KEY:
         try:
             concepts = _get_concepts_gemini(text)
             if concepts:
-                return {"key_concepts": concepts, "source": "gemini"}
+                return {
+                    "key_concepts": concepts,
+                    "source": "gemini",
+                    "confidence": "high"
+                }
         except Exception as e:
             print("Gemini concept extraction failed:", e)
 
-    # 3️⃣ spaCy fallback
     try:
         concepts = _get_concepts_spacy(text)
-        return {"key_concepts": concepts, "source": "spacy"}
+        return {
+            "key_concepts": concepts[:10],
+            "source": "spacy",
+            "confidence": "low"
+        }
     except Exception as e:
         print("spaCy concept extraction failed:", e)
 
-    return {"key_concepts": [], "source": "none"}
+    return {"key_concepts": [], "source": "none", "confidence": "low"}

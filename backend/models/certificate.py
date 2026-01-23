@@ -21,7 +21,7 @@ class Certificate(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    student_id = Column(String(100), nullable=False)
+    user_id = Column(String(100), nullable=False)
     topic = Column(String(200), nullable=False)
 
     best_accuracy = Column(
@@ -46,7 +46,7 @@ class Certificate(Base):
 
     __table_args__ = (
         # Enforce highest-score-per-topic-per-student
-        UniqueConstraint("student_id", "topic", name="uq_student_topic"),
+        UniqueConstraint("user_id", "topic", name="uq_student_topic"),
 
         # Accuracy must be valid percentage
         CheckConstraint(
@@ -55,5 +55,5 @@ class Certificate(Base):
         ),
 
         # Performance index (very important)
-        Index("idx_certificate_student_topic", "student_id", "topic"),
+        Index("idx_certificate_student_topic", "user_id", "topic"),
     )

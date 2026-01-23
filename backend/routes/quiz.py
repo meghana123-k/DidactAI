@@ -7,7 +7,7 @@ from db.models import Quiz, QuizAttempt
 from services.quiz_generator import generate_quiz_from_summary
 from services.quiz_validator import validate_quiz_attempt
 from utils.text_preprocessing import extract_text_from_input
-
+from services.quiz_validator import validate_quiz_attempt
 quiz_bp = Blueprint("quiz", __name__, url_prefix="/api/quiz")
 
 
@@ -101,7 +101,7 @@ def submit_quiz():
     payload = request.get_json()
 
     required_fields = [
-        "student_id",
+        "user_id",
         "topic",
         "assessment_phase",
         "summary_mode",
@@ -116,32 +116,55 @@ def submit_quiz():
     if payload["assessment_phase"] not in ("pre", "post"):
         return jsonify({"error": "assessment_phase must be pre or post"}), 400
 
-    attempt_result = validate_quiz_attempt(
+    # --------------------------------------------------
+    # 1. RAW VALIDATION
+    # --------------------------------------------------
+    validation = validate_quiz_attempt(
         quiz=payload["quiz"],
         user_answers=payload["user_answers"],
         attempt_metadata=payload.get("attempt_metadata")
     )
 
+    results = validation["results"]
+
+    # --------------------------------------------------
+    # 2. BASIC SCORING (TEMPORARY, SAFE)
+    # --------------------------------------------------
+    total_questions = len(results)
+    correct = sum(1 for r in results if r["is_correct"])
+
+    accuracy = round((correct / total_questions) * 100, 2) if total_questions else 0
+
+    # --------------------------------------------------
+    # 3. PERSIST ATTEMPT
+    # --------------------------------------------------
     db: Session = SessionLocal()
     try:
         attempt = QuizAttempt(
-            student_id=payload["student_id"],
+            user_id=payload["user_id"],
             topic=payload["topic"],
             assessment_phase=payload["assessment_phase"],
             summary_mode=payload["summary_mode"],
 
-            raw_results=attempt_result["results"],
-            concept_events=attempt_result["concept_events"],
+            accuracy=accuracy,
+            total_score=correct,
+            max_score=total_questions,
 
-            attempt_metadata=payload.get("attempt_metadata", {})
+            difficulty_analysis={},   # filled later by analytics_engine
+            concept_analysis={},      # filled later by analytics_engine
+
+            attempt_metadata=payload.get("attempt_metadata")
         )
 
         db.add(attempt)
         db.commit()
 
-        return jsonify({
-            "attempt_result": attempt_result
-        }), 200
-
     finally:
         db.close()
+
+    return jsonify({
+        "accuracy": accuracy,
+        "total_questions": total_questions,
+        "correct": correct,
+        "results": results
+    }), 200

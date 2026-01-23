@@ -1,3 +1,4 @@
+# services/quiz_validator.py
 from typing import Dict
 from datetime import datetime
 
@@ -8,17 +9,19 @@ def validate_quiz_attempt(
     attempt_metadata: Dict[str, Dict] | None = None
 ) -> Dict:
     """
-    Validates answers and produces raw correctness facts.
-    NO scoring. NO pass/fail. NO analytics.
+    PURE VALIDATOR.
+    - Checks answers
+    - Produces raw correctness facts
+    - NO scoring
+    - NO analytics
     """
 
     attempt_metadata = attempt_metadata or {}
 
-    # ✅ Normalize quiz structure
+    # Normalize quiz structure
     quiz_data = quiz["quiz"] if "quiz" in quiz else quiz
 
-    results = []
-    concept_events = []
+    detailed_results = []
 
     for level, questions in quiz_data.items():
         for idx, q in enumerate(questions):
@@ -28,24 +31,17 @@ def validate_quiz_attempt(
 
             is_correct = selected == correct
 
-            results.append({
+            detailed_results.append({
                 "question_id": question_id,
                 "difficulty": q["difficulty"],
-                "concept": correct,
+                "concept": correct,  # atomic concept
                 "selected": selected,
                 "correct_answer": correct,
                 "is_correct": is_correct,
-                "timestamp": datetime.utcnow().isoformat(),
-                "time_taken": attempt_metadata.get(question_id, {}).get("time_taken")
-            })
-
-            concept_events.append({
-                "concept": correct,
-                "difficulty": q["difficulty"],
-                "is_correct": is_correct
+                "time_taken": attempt_metadata.get(question_id, {}).get("time_taken"),
+                "timestamp": datetime.utcnow().isoformat()
             })
 
     return {
-        "results": results,
-        "concept_events": concept_events
+        "results": detailed_results
     }
